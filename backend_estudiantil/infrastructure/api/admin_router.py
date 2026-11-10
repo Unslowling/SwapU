@@ -1,8 +1,16 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from backend_estudiantil.adapters.db.sqlalchemy_user_repository import SQLAlchemyUserRepository
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import desc, func, or_, select
+
+from backend_estudiantil.adapters.db import AuditoriaLogORM, get_session_factory
+from backend_estudiantil.adapters.db.sqlalchemy_user_repository import (
+    SQLAlchemyUserRepository,
+)
 from backend_estudiantil.domain.services.user_service import UserService
-from backend_estudiantil.ports.repositories.user_repository import UserRepository
 from backend_estudiantil.infrastructure.security import get_current_user
+from backend_estudiantil.ports.repositories.user_repository import UserRepository
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -32,38 +40,32 @@ async def promote_user(
 # Módulo y Consola de Auditoría (Regla de las 5W)
 # ─────────────────────────────────────────────────────────────────────────────
 
-from typing import Optional, List
-from datetime import datetime
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select, func, desc, or_
-from backend_estudiantil.adapters.db import AuditoriaLogORM, get_session_factory
-
 
 class AuditoriaItemRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    usuario_id: Optional[int] = None
-    usuario_email: Optional[str] = None
-    usuario_rol: Optional[str] = None
+    usuario_id: int | None = None
+    usuario_email: str | None = None
+    usuario_rol: str | None = None
     ip_origen: str
-    user_agent: Optional[str] = None
+    user_agent: str | None = None
     accion: str
-    recurso: Optional[str] = None
+    recurso: str | None = None
     fecha_hora: datetime
     metodo_http: str
     endpoint: str
     estado_http: int
     exito: bool
-    detalle: Optional[str] = None
-    duracion_ms: Optional[float] = None
+    detalle: str | None = None
+    duracion_ms: float | None = None
 
 
 class AuditoriaRespuesta(BaseModel):
     total: int
     skip: int
     limit: int
-    items: List[AuditoriaItemRead]
+    items: list[AuditoriaItemRead]
 
 
 class AuditoriaStats(BaseModel):
@@ -78,11 +80,11 @@ class AuditoriaStats(BaseModel):
 async def consultar_auditoria(
     skip: int = 0,
     limit: int = 50,
-    accion: Optional[str] = None,
-    usuario_id: Optional[int] = None,
-    solo_errores: Optional[bool] = False,
-    recurso: Optional[str] = None,
-    busqueda: Optional[str] = None,
+    accion: str | None = None,
+    usuario_id: int | None = None,
+    solo_errores: bool | None = False,
+    recurso: str | None = None,
+    busqueda: str | None = None,
     current_user: dict = Depends(get_current_user),
 ):
     """Consulta la bitácora del sistema auditor aplicando la regla de las 5W.
@@ -100,7 +102,7 @@ async def consultar_auditoria(
         if usuario_id is not None:
             condiciones.append(AuditoriaLogORM.usuario_id == usuario_id)
         if solo_errores:
-            condiciones.append(AuditoriaLogORM.exito == False)
+            condiciones.append(AuditoriaLogORM.exito.is_(False))
         if recurso:
             condiciones.append(AuditoriaLogORM.recurso == recurso)
         if busqueda:
@@ -156,11 +158,11 @@ async def obtener_estadisticas_auditoria(
         total = (await session.execute(total_stmt)).scalar_one()
 
         # Exitosos
-        exitosos_stmt = select(func.count(AuditoriaLogORM.id)).where(AuditoriaLogORM.exito == True)
+        exitosos_stmt = select(func.count(AuditoriaLogORM.id)).where(AuditoriaLogORM.exito.is_(True))
         exitosos = (await session.execute(exitosos_stmt)).scalar_one()
 
         # Fallidos
-        fallidos_stmt = select(func.count(AuditoriaLogORM.id)).where(AuditoriaLogORM.exito == False)
+        fallidos_stmt = select(func.count(AuditoriaLogORM.id)).where(AuditoriaLogORM.exito.is_(False))
         fallidos = (await session.execute(fallidos_stmt)).scalar_one()
 
         # 401 / 403

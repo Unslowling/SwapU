@@ -1,79 +1,96 @@
-import pytest
 import io
 import uuid
-from httpx import AsyncClient, ASGITransport
-from backend_estudiantil.infrastructure.main import app
-from backend_estudiantil.adapters.db import get_session_factory, UserORM
-from backend_estudiantil.adapters.security.jwt_authenticator import JWTAuthenticator
+from unittest.mock import patch
+
+from httpx import ASGITransport, AsyncClient
+import pytest
 from sqlalchemy import select
+
+from backend_estudiantil.adapters.db import UserORM, get_session_factory
+from backend_estudiantil.adapters.notifications.email_sender import SMTPEmailSender
+from backend_estudiantil.adapters.security.jwt_authenticator import JWTAuthenticator
+from backend_estudiantil.infrastructure.main import app
+
+pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
 def jwt_auth():
     return JWTAuthenticator()
 
-
 @pytest.mark.asyncio
 async def test_registro_password_no_marca_verificado_hasta_confirmar_codigo(jwt_auth):
     """Verifica que el registro con contraseña NO active verificado_comunidad de inmediato y requiera confirmación de código."""
     transport = ASGITransport(app=app)
     uid = uuid.uuid4().hex[:6]
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        email_inst = f"estudiante_{uid}@usbmed.edu.co"
-        # 1. Registro con dominio institucional de USBMED
-        res_inst = await ac.post("/auth/register", json={
-            "email": email_inst,
-            "password": "Password123*",
-            "name": "Carlos Rodríguez",
-            "carrera": "Ingeniería de Sistemas",
-        })
-        assert res_inst.status_code == 201
-        data_inst = res_inst.json()
-        # REGLA: NO debe estar verificado sólo por el dominio
-        assert data_inst["verificado_comunidad"] is False
+    codigos_capturados = []
 
-        # Obtener el código de confirmación generado en la BD
-        factory = get_session_factory()
-        async with factory() as session:
-            q = await session.execute(select(UserORM).where(UserORM.correo_institucional == email_inst))
-            u = q.scalar_one()
-            codigo_guardado = u.codigo_confirmacion
-            assert codigo_guardado is not None
-            assert len(codigo_guardado) == 6
+    async def mock_send_email(self, to_email, code, verification_link=None):
+        codigos_capturados.append(code)
+        return True
 
-        # 2. Intentar confirmar con código erróneo -> 400 Bad Request
-        res_fail = await ac.post("/auth/confirmar-codigo", json={
-            "email": email_inst,
-            "codigo": "000000",
-        })
-        assert res_fail.status_code == 400
-        assert "incorrecto" in res_fail.json()["detail"].lower()
+    with patch.object(SMTPEmailSender, "send_verification_code", new=mock_send_email):
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            email_inst = f"estudiante_{uid}@usbmed.edu.co"
+            # 1. Registro con dominio institucional de USBMED
+            res_inst = await ac.post("/auth/register", json={
+                "email": email_inst,
+                "password": "Password123*",
+                "name": "Carlos Rodríguez",
+                "carrera": "Ingeniería de Sistemas",
+            })
+            assert res_inst.status_code == 201
+            data_inst = res_inst.json()
+            # REGLA: NO debe estar verificado sólo por el dominio
+            assert data_inst["verificado_comunidad"] is False
 
-        # 3. Confirmar con código correcto -> 200 OK y verificado_comunidad=True
-        res_ok = await ac.post("/auth/confirmar-codigo", json={
-            "email": email_inst,
-            "codigo": codigo_guardado,
-        })
-        assert res_ok.status_code == 200
-        assert res_ok.json()["verificado_comunidad"] is True
+            # Obtener el código de confirmación generado en la BD
+            factory = get_session_factory()
+            async with factory() as session:
+                q = await session.execute(select(UserORM).where(UserORM.correo_institucional == email_inst))
+                u = q.scalar_one()
+                codigo_guardado = u.codigo_confirmacion
+                assert codigo_guardado is not None
+                # Debe estar almacenado como hash SHA-256 (64 hex caracteres) por seguridad
+                assert len(codigo_guardado) == 64
 
-        # Verificar en la base de datos que ya no hay código pendiente y la comunidad está verificada
-        async with factory() as session:
-            q = await session.execute(select(UserORM).where(UserORM.correo_institucional == email_inst))
-            u = q.scalar_one()
-            assert u.verificado_comunidad is True
-            assert u.codigo_confirmacion is None
-            assert u.universidad == "Universidad de San Buenaventura Medellín"
+            assert len(codigos_capturados) == 1
+            codigo_plano = codigos_capturados[0]
+            assert len(codigo_plano) == 6
 
-        # 4. Usuario con correo externo (@gmail.com) no tiene verificado_comunidad
-        res_ext = await ac.post("/auth/register", json={
-            "email": f"usuario_ext_{uid}@gmail.com",
-            "password": "Password123*",
-            "name": "Pedro Gómez",
-        })
-        assert res_ext.status_code == 201
-        data_ext = res_ext.json()
-        assert data_ext["verificado_comunidad"] is False
+            # 2. Intentar confirmar con código erróneo -> 400 Bad Request
+            res_fail = await ac.post("/auth/confirmar-codigo", json={
+                "email": email_inst,
+                "codigo": "000000",
+            })
+            assert res_fail.status_code == 400
+            assert "incorrecto" in res_fail.json()["detail"].lower()
+
+            # 3. Confirmar con código correcto -> 200 OK y verificado_comunidad=True
+            res_ok = await ac.post("/auth/confirmar-codigo", json={
+                "email": email_inst,
+                "codigo": codigo_plano,
+            })
+            assert res_ok.status_code == 200
+            assert res_ok.json()["verificado_comunidad"] is True
+
+            # Verificar en la base de datos que ya no hay código pendiente y la comunidad está verificada
+            async with factory() as session:
+                q = await session.execute(select(UserORM).where(UserORM.correo_institucional == email_inst))
+                u = q.scalar_one()
+                assert u.verificado_comunidad is True
+                assert u.codigo_confirmacion is None
+                assert u.universidad == "Universidad de San Buenaventura Medellín"
+
+            # 4. Usuario con correo externo (@gmail.com) no tiene verificado_comunidad
+            res_ext = await ac.post("/auth/register", json={
+                "email": f"usuario_ext_{uid}@gmail.com",
+                "password": "Password123*",
+                "name": "Pedro Gómez",
+            })
+            assert res_ext.status_code == 201
+            data_ext = res_ext.json()
+            assert data_ext["verificado_comunidad"] is False
 
 
 
@@ -82,45 +99,55 @@ async def test_cuenta_general_puede_publicar_y_bloqueado_es_rechazado(jwt_auth):
     """Verifica que una cuenta general/Gmail pueda publicar y proponer trueques, y que una cuenta bloqueada sea rechazada."""
     transport = ASGITransport(app=app)
     uid = uuid.uuid4().hex[:6]
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        # Registrar usuario externo general (Gmail)
-        email = f"general_{uid}@gmail.com"
-        await ac.post("/auth/register", json={
-            "email": email,
-            "password": "Password123*",
-            "name": "Usuario General",
-        })
+    factory = get_session_factory()
+    email = f"general_{uid}@gmail.com"
+    pub_id = None
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            # Registrar usuario externo general (Gmail)
+            await ac.post("/auth/register", json={
+                "email": email,
+                "password": "Password123*",
+                "name": "Usuario General",
+            })
 
-        login_res = await ac.post("/auth/login", json={
-            "email": email,
-            "password": "Password123*",
-        })
-        token = login_res.json()["access_token"]
-        headers = {"Authorization": f"Bearer {token}"}
+            login_res = await ac.post("/auth/login", json={
+                "email": email,
+                "password": "Password123*",
+            })
+            token = login_res.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
 
-        # Usuario general puede publicar exitosamente
-        pub_res = await ac.post("/publicaciones/", json={
-            "titulo": "Libro de Lectura General",
-            "autor": "Autor Ejemplo",
-            "categoria_id": 1,
-        }, headers=headers)
-        assert pub_res.status_code == 201
+            # Usuario general puede publicar exitosamente
+            pub_res = await ac.post("/publicaciones/", json={
+                "titulo": "Libro de Lectura General",
+                "autor": "Autor Ejemplo",
+                "categoria_id": 1,
+            }, headers=headers)
+            assert pub_res.status_code == 201
+            pub_id = pub_res.json()["id"]
 
-        # Si la cuenta pasa a estado 'bloqueado', no puede publicar
-        factory = get_session_factory()
+            # Si la cuenta pasa a estado 'bloqueado', no puede publicar
+            async with factory() as session:
+                q = await session.execute(select(UserORM).where(UserORM.correo_institucional == email))
+                u = q.scalar_one()
+                u.estado_cuenta = "bloqueado"
+                await session.commit()
+
+            pub_bloq = await ac.post("/publicaciones/", json={
+                "titulo": "Otro Libro",
+                "autor": "Autor",
+                "categoria_id": 1,
+            }, headers=headers)
+            assert pub_bloq.status_code == 403
+            assert any(m in pub_bloq.json()["detail"] for m in ["Inactive", "bloqueada"])
+    finally:
         async with factory() as session:
-            q = await session.execute(select(UserORM).where(UserORM.correo_institucional == email))
-            u = q.scalar_one()
-            u.estado_cuenta = "bloqueado"
+            from sqlalchemy import text
+            if pub_id:
+                await session.execute(text("DELETE FROM publicaciones WHERE id = :pid"), {"pid": pub_id})
+            await session.execute(text("DELETE FROM usuarios WHERE correo_institucional = :email"), {"email": email})
             await session.commit()
-
-        pub_bloq = await ac.post("/publicaciones/", json={
-            "titulo": "Otro Libro",
-            "autor": "Autor",
-            "categoria_id": 1,
-        }, headers=headers)
-        assert pub_bloq.status_code == 403
-        assert any(m in pub_bloq.json()["detail"] for m in ["Inactive", "bloqueada"])
 
 
 @pytest.mark.asyncio

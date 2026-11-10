@@ -9,21 +9,30 @@ from backend_estudiantil.infrastructure.main import app
 from backend_estudiantil.config.settings import settings
 from backend_estudiantil.adapters.db import Base, get_engine
 
+pytestmark = pytest.mark.integration
+
 @pytest_asyncio.fixture(autouse=True)
-async def reset_db():
-    """Inicializa la base de datos de pruebas SQLite aislada para cada test."""
-    original_url = settings.DATABASE_URL
-    test_db_url = "sqlite+aiosqlite:///./test_auth.db"
+async def reset_db(tmp_path):
+    """Inicializa la base de datos de pruebas SQLite aislada en directorio temporal para cada test."""
+    db_file = tmp_path / "test_auth.db"
+    test_db_url = f"sqlite+aiosqlite:///{db_file.as_posix()}"
+    safe_fallback_url = "sqlite+aiosqlite:///:memory:"
     settings.DATABASE_URL = test_db_url
     engine = get_engine(test_db_url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+    await engine.dispose()
     yield
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    settings.DATABASE_URL = original_url
-    get_engine(original_url)
+    active_engine = get_engine()
+    await active_engine.dispose()
+    await engine.dispose()
+    try:
+        db_file.unlink(missing_ok=True)
+    except OSError:
+        pass
+    settings.DATABASE_URL = safe_fallback_url
+    get_engine(safe_fallback_url)
 
 def test_health_and_database_connection():
     """Verifica que la API y la conexión a la base de datos respondan correctamente."""

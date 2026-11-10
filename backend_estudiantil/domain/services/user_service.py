@@ -1,29 +1,34 @@
+import hashlib
+import hmac
 import secrets
-from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from datetime import datetime, timedelta, timezone
 
+from backend_estudiantil.adapters.notifications.email_sender import SMTPEmailSender
+from backend_estudiantil.adapters.security.password_hasher import (
+    hash_password_async,
+    verify_password_async,
+)
 from backend_estudiantil.config.settings import settings
 from backend_estudiantil.domain.models.user import User
-from backend_estudiantil.adapters.security.password_hasher import hash_password, verify_password
-from backend_estudiantil.ports.repositories.user_repository import UserRepository
 from backend_estudiantil.ports.notifications.email_sender import EmailSender
-from backend_estudiantil.adapters.notifications.email_sender import SMTPEmailSender
+from backend_estudiantil.ports.repositories.user_repository import UserRepository
 from backend_estudiantil.schemas.user import UserCreate, UserUpdate
+
 
 class UserService:
     """Servicio de dominio para la lógica de negocio de usuarios y estudiantes."""
 
-    def __init__(self, repo: UserRepository, email_sender: Optional[EmailSender] = None):
+    def __init__(self, repo: UserRepository, email_sender: EmailSender | None = None):
         self.repo = repo
         self.email_sender = email_sender or SMTPEmailSender()
 
-    def _hash_password(self, password: str) -> str:
-        """Genera hash seguro de contraseña (bcrypt)."""
-        return hash_password(password)
+    async def _hash_password(self, password: str) -> str:
+        """Genera hash seguro de contraseña (bcrypt con asyncio.to_thread)."""
+        return await hash_password_async(password)
 
-    def _verify_password(self, plain_password: str, hashed_password: str) -> bool:
-        """Valida una contraseña contra su hash."""
-        return verify_password(plain_password, hashed_password)
+    async def _verify_password(self, plain_password: str, hashed_password: str) -> bool:
+        """Valida una contraseña contra su hash (bcrypt con asyncio.to_thread)."""
+        return await verify_password_async(plain_password, hashed_password)
 
     async def create_user(self, payload: UserCreate) -> User:
         # Verificar si el correo ya existe
@@ -31,20 +36,23 @@ class UserService:
         if existing:
             raise ValueError("El correo electrónico ya está registrado")
 
-        hashed = self._hash_password(payload.password)
+        hashed = await self._hash_password(payload.password)
 
         # Regla: NO marcar verificado_comunidad=True solo por el dominio en registro con contraseña.
         # Si el correo es de dominio institucional, se envía código de confirmación.
         es_inst = settings.es_dominio_institucional(payload.email)
         universidad = settings.obtener_universidad_por_dominio(payload.email) if es_inst else getattr(payload, "universidad", None)
         carrera = getattr(payload, "carrera", None)
+        facultad = getattr(payload, "facultad", None)
         nombre = payload.name or ""
         perfil_completo = bool(nombre.strip() and universidad and carrera)
 
-        codigo_conf = None
+        codigo_conf_hash = None
+        codigo_conf_raw = None
         expira_conf = None
         if es_inst:
-            codigo_conf = f"{secrets.randbelow(900000) + 100000}"
+            codigo_conf_raw = f"{secrets.randbelow(900000) + 100000}"
+            codigo_conf_hash = hashlib.sha256(codigo_conf_raw.encode("utf-8")).hexdigest()
             expira_conf = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=30)
 
         user = User(
@@ -55,21 +63,24 @@ class UserService:
             estado_cuenta="activo",
             verificado_comunidad=False,  # Inicia False hasta que se confirme el código/enlace
             programa_area=carrera,
+            facultad=facultad,
             universidad=universidad,
             telefono=getattr(payload, "telefono", None),
             semestre=getattr(payload, "semestre", None),
             foto_url=getattr(payload, "foto_url", None),
             perfil_completo=perfil_completo,
-            codigo_confirmacion=codigo_conf,
+            codigo_confirmacion=codigo_conf_hash,
             codigo_confirmacion_expira=expira_conf,
+            codigo_confirmacion_intentos=0,
+            correo_confirmado=False,
         )
         created_user = await self.repo.create(user)
 
         # Enviar código o enlace de confirmación al correo institucional
-        if es_inst and codigo_conf:
-            enlace = f"{settings.APP_BASE_URL}/auth/confirmar-correo?email={payload.email}&codigo={codigo_conf}"
+        if es_inst and codigo_conf_raw:
+            enlace = f"{settings.APP_BASE_URL}/auth/confirmar-correo?email={payload.email}&codigo={codigo_conf_raw}"
             try:
-                await self.email_sender.send_verification_code(payload.email, codigo_conf, enlace)
+                await self.email_sender.send_verification_code(payload.email, codigo_conf_raw, enlace)
             except Exception:
                 pass
 
@@ -81,10 +92,10 @@ class UserService:
             raise ValueError("User not found")
         return user
 
-    async def get_by_email(self, email: str) -> Optional[User]:
+    async def get_by_email(self, email: str) -> User | None:
         return await self.repo.get_by_email(email)
 
-    async def get_users(self, skip: int = 0, limit: int = 100) -> List[User]:
+    async def get_users(self, skip: int = 0, limit: int = 100) -> list[User]:
         return await self.repo.list(skip=skip, limit=limit)
 
     async def update_user(self, user_id: str, payload: UserUpdate) -> User:
@@ -94,16 +105,35 @@ class UserService:
             if existing and existing.id != user.id:
                 raise ValueError("El correo electrónico ya está en uso")
             user.correo_institucional = payload.email
+            # Regla de seguridad: Si el usuario cambia su correo, verificado_comunidad vuelve a False
+            user.verificado_comunidad = False
+            user.correo_confirmado = False
+            user.carnet_estado = "sin_verificar"
+            user.carnet_rechazo_motivo = None
+
             if settings.es_dominio_institucional(payload.email):
-                user.verificado_comunidad = True
-                if not user.universidad:
-                    user.universidad = settings.obtener_universidad_por_dominio(payload.email)
+                raw_codigo = f"{secrets.randbelow(900000) + 100000}"
+                user.codigo_confirmacion = hashlib.sha256(raw_codigo.encode("utf-8")).hexdigest()
+                user.codigo_confirmacion_expira = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=30)
+                user.codigo_confirmacion_intentos = 0
+                enlace = f"{settings.APP_BASE_URL}/auth/confirmar-correo?email={payload.email}&codigo={raw_codigo}"
+                try:
+                    await self.email_sender.send_verification_code(payload.email, raw_codigo, enlace)
+                except Exception:
+                    pass
+            else:
+                user.codigo_confirmacion = None
+                user.codigo_confirmacion_expira = None
+                user.codigo_confirmacion_intentos = 0
 
         if payload.name is not None:
             user.name = payload.name
 
         if getattr(payload, "carrera", None) is not None:
             user.programa_area = payload.carrera
+
+        if getattr(payload, "facultad", None) is not None:
+            user.facultad = payload.facultad
 
         if getattr(payload, "universidad", None) is not None:
             user.universidad = payload.universidad
@@ -126,7 +156,7 @@ class UserService:
             )
 
         if payload.password:
-            user.password_hash = self._hash_password(payload.password)
+            user.password_hash = await self._hash_password(payload.password)
 
         return await self.repo.update(user)
 
@@ -150,19 +180,41 @@ class UserService:
         await self.repo.delete(user_id)
 
     async def confirmar_codigo_verificacion(self, email: str, codigo: str) -> User:
-        """Confirma el código de verificación del correo institucional y activa verificado_comunidad."""
+        """Confirma el código de verificación del correo institucional y activa verificado_comunidad.
+        Valida usando hmac.compare_digest contra el hash SHA-256 y controla un límite de 5 intentos.
+        """
         user = await self.repo.get_by_email(email)
         if not user:
-            raise ValueError("Usuario no encontrado")
+            # Respuesta genérica para no revelar si el correo existe
+            raise ValueError("Código de confirmación o correo inválido")
 
-        if user.verificado_comunidad:
+        if user.verificado_comunidad and user.correo_confirmado:
             return user
 
         if not user.codigo_confirmacion:
-            raise ValueError("No hay un proceso de verificación activo para este correo")
+            raise ValueError("Código de confirmación o correo inválido")
 
-        if user.codigo_confirmacion.strip() != codigo.strip():
-            raise ValueError("Código de confirmación incorrecto")
+        # Control de intentos fallidos (máximo 5)
+        intentos_actuales = user.codigo_confirmacion_intentos or 0
+        if intentos_actuales >= 5:
+            user.codigo_confirmacion = None
+            user.codigo_confirmacion_expira = None
+            user.codigo_confirmacion_intentos = 0
+            await self.repo.update(user)
+            raise ValueError("Has superado el número máximo de intentos permitidos (5). Debes solicitar un nuevo código")
+
+        # Comparación segura de hash SHA-256 con hmac.compare_digest
+        input_hash = hashlib.sha256(codigo.strip().encode("utf-8")).hexdigest()
+        if not hmac.compare_digest(user.codigo_confirmacion, input_hash):
+            user.codigo_confirmacion_intentos = intentos_actuales + 1
+            if user.codigo_confirmacion_intentos >= 5:
+                user.codigo_confirmacion = None
+                user.codigo_confirmacion_expira = None
+                user.codigo_confirmacion_intentos = 0
+                await self.repo.update(user)
+                raise ValueError("Has superado el número máximo de intentos permitidos (5). Debes solicitar un nuevo código")
+            await self.repo.update(user)
+            raise ValueError(f"Código de confirmación incorrecto. Intento {user.codigo_confirmacion_intentos} de 5")
 
         if user.codigo_confirmacion_expira:
             expira = user.codigo_confirmacion_expira
@@ -172,35 +224,43 @@ class UserService:
             if ahora > expira:
                 raise ValueError("El código de confirmación ha expirado. Solicita un nuevo código")
 
-        # Activar verificación de comunidad
+        # Activar verificación de comunidad y confirmar correo
         user.verificado_comunidad = True
+        user.correo_confirmado = True
+        user.carnet_estado = "verificado"
+        user.carnet_rechazo_motivo = None
         if not user.universidad:
             user.universidad = settings.obtener_universidad_por_dominio(user.correo_institucional)
         user.codigo_confirmacion = None
         user.codigo_confirmacion_expira = None
+        user.codigo_confirmacion_intentos = 0
         user.perfil_completo = bool(user.name and user.universidad and user.programa_area)
         return await self.repo.update(user)
 
-    async def reenviar_codigo_verificacion(self, email: str) -> User:
-        """Genera y reenvía un nuevo código de confirmación al correo institucional."""
+    async def reenviar_codigo_verificacion(self, email: str) -> User | None:
+        """Genera y reenvía un nuevo código de confirmación al correo institucional.
+        Responde de forma genérica para no revelar si el correo está registrado.
+        """
         user = await self.repo.get_by_email(email)
         if not user:
-            raise ValueError("Usuario no encontrado")
+            # Respuesta genérica silenciosa
+            return None
 
-        if user.verificado_comunidad:
-            raise ValueError("El correo institucional ya se encuentra verificado")
+        if user.verificado_comunidad and user.correo_confirmado:
+            return user
 
         if not settings.es_dominio_institucional(email):
-            raise ValueError("Este correo no pertenece a un dominio institucional")
+            return user
 
-        nuevo_codigo = f"{secrets.randbelow(900000) + 100000}"
-        user.codigo_confirmacion = nuevo_codigo
+        nuevo_codigo_raw = f"{secrets.randbelow(900000) + 100000}"
+        user.codigo_confirmacion = hashlib.sha256(nuevo_codigo_raw.encode("utf-8")).hexdigest()
         user.codigo_confirmacion_expira = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=30)
+        user.codigo_confirmacion_intentos = 0
         updated_user = await self.repo.update(user)
 
-        enlace = f"{settings.APP_BASE_URL}/auth/confirmar-correo?email={email}&codigo={nuevo_codigo}"
+        enlace = f"{settings.APP_BASE_URL}/auth/confirmar-correo?email={email}&codigo={nuevo_codigo_raw}"
         try:
-            await self.email_sender.send_verification_code(email, nuevo_codigo, enlace)
+            await self.email_sender.send_verification_code(email, nuevo_codigo_raw, enlace)
         except Exception:
             pass
 

@@ -8,7 +8,7 @@ on:
 
 jobs:
   revision:
-    name: Revisar y probar el proyecto
+    name: Revisar calidad, cobertura y pruebas por separado
     runs-on: ubuntu-latest
 
     steps:
@@ -21,39 +21,96 @@ jobs:
           python-version: "3.12"
 
       - name: Instalar dependencias
-        working-directory: backend_estudiantil
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio respx httpx aiosqlite
+          pip install -r backend_estudiantil/requirements.txt
+          pip install pytest pytest-asyncio pytest-cov respx httpx aiosqlite fakeredis ruff alembic asyncpg psycopg2-binary
 
-      - name: Revisar calidad del código
-        working-directory: backend_estudiantil
+      - name: Revisar calidad del código (Ruff bloqueante)
         run: |
-          pip install ruff
-          ruff check . --ignore E501
-        continue-on-error: true
+          ruff check .
 
-      - name: Correr las pruebas
-        working-directory: backend_estudiantil
+      - name: Ejecutar pruebas unitarias
+        run: |
+          pytest -m unit --cov=backend_estudiantil --cov-report=term --cov-append -q --tb=short
+
+      - name: Ejecutar pruebas de integración
         env:
           DATABASE_URL: sqlite+aiosqlite:///./test.db
-          JWT_SECRET_KEY: clave_de_prueba_local_12345
-          JWT_ALGORITHM: HS256
-          ACCESS_TOKEN_EXPIRE_MINUTES: 60
-          REFRESH_TOKEN_EXPIRE_DAYS: 7
+          JWT_SECRET_KEY: clave_de_prueba_local_12345678901234567890
+          ENV: dev
+          DATABASEPROVIDER: SQLite
           COOKIE_SECURE: "false"
           COOKIE_HTTPONLY: "true"
           COOKIE_SAMESITE: lax
-          GOOGLE_CLIENT_ID: dummy
-          GOOGLE_CLIENT_SECRET: dummy
-          GOOGLE_REDIRECT_URI: http://localhost:8000/auth/google/callback
-          GOOGLE_SCOPES: openid email profile
-          FACEBOOK_CLIENT_ID: dummy
-          FACEBOOK_CLIENT_SECRET: dummy
-          FACEBOOK_REDIRECT_URI: http://localhost:8000/auth/facebook/callback
-          FACEBOOK_SCOPES: email,public_profile
-          DATABASEPROVIDER: SQLite
+          GOOGLE_CLIENT_ID: dummy_google_client_id
+          GOOGLE_CLIENT_SECRET: dummy_google_client_secret
+          FACEBOOK_CLIENT_ID: dummy_facebook_client_id
+          FACEBOOK_CLIENT_SECRET: dummy_facebook_client_secret
         run: |
-          pytest tests/ -q --tb=short
+          pytest -m integration --cov=backend_estudiantil --cov-report=term --cov-report=xml:coverage.xml --cov-report=html:htmlcov --junitxml=junit.xml --cov-append -q --tb=short
 
+      - name: Subir informe de cobertura y pruebas (XML y HTML)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reportes-cobertura-y-pruebas
+          path: |
+            coverage.xml
+            htmlcov/
+            junit.xml
+
+  migraciones_postgres:
+    name: Validar migraciones desde cero y pruebas en PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend_estudiantil/requirements.txt
+          pip install pytest pytest-asyncio pytest-cov respx httpx aiosqlite fakeredis alembic asyncpg psycopg2-binary
+
+      - name: Ejecutar Alembic upgrade head desde cero
+        env:
+          DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5432/test_db
+        run: |
+          alembic upgrade head
+
+      - name: Ejecutar pruebas de integración contra PostgreSQL
+        env:
+          DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5432/test_db
+          JWT_SECRET_KEY: clave_de_prueba_local_12345678901234567890
+          ENV: dev
+          DATABASEPROVIDER: PostgreSQL
+          COOKIE_SECURE: "false"
+          COOKIE_HTTPONLY: "true"
+          COOKIE_SAMESITE: lax
+          GOOGLE_CLIENT_ID: dummy_google_client_id
+          GOOGLE_CLIENT_SECRET: dummy_google_client_secret
+          FACEBOOK_CLIENT_ID: dummy_facebook_client_id
+          FACEBOOK_CLIENT_SECRET: dummy_facebook_client_secret
+        run: |
+          pytest -m integration -q --tb=short

@@ -1,7 +1,10 @@
+from urllib.parse import urlencode
+
 import httpx
 from fastapi import HTTPException, status
-from urllib.parse import urlencode
+
 from backend_estudiantil.config.settings import settings
+
 
 class FacebookOAuth2Authenticator:
     async def get_authorization_url(self) -> str:

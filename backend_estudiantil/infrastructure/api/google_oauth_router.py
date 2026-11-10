@@ -1,14 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 import json
 
-from backend_estudiantil.adapters.db.sqlalchemy_user_repository import SQLAlchemyUserRepository
-from backend_estudiantil.adapters.security.google_oauth2_authenticator import GoogleOAuth2Authenticator
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+
+from backend_estudiantil.adapters.db.sqlalchemy_user_repository import (
+    SQLAlchemyUserRepository,
+)
+from backend_estudiantil.adapters.security.google_oauth2_authenticator import (
+    GoogleOAuth2Authenticator,
+)
 from backend_estudiantil.adapters.security.jwt_authenticator import JWTAuthenticator
 from backend_estudiantil.config.settings import settings
 from backend_estudiantil.domain.models.user import User
 from backend_estudiantil.ports.repositories.user_repository import UserRepository
-from backend_estudiantil.schemas.auth import Token
 
 router = APIRouter(prefix="/auth/google", tags=["auth"])
 

@@ -1,4 +1,3 @@
-from typing import List, Optional
 
 from backend_estudiantil.domain.models.trueque import Trueque
 from backend_estudiantil.ports.repositories.trueque_repository import TruequeRepository
@@ -18,10 +17,10 @@ class TruequeService:
     async def proponer_trueque(
         self,
         usuario_propone_id: int,
-        usuario_recibe_id: Optional[int] = None,
-        match_id: Optional[int] = None,
-        publicacion_origen_id: Optional[int] = None,
-        publicacion_destino_id: Optional[int] = None,
+        usuario_recibe_id: int | None = None,
+        match_id: int | None = None,
+        publicacion_origen_id: int | None = None,
+        publicacion_destino_id: int | None = None,
     ) -> Trueque:
         """Crea una nueva propuesta de trueque entre dos usuarios."""
         if (publicacion_origen_id is None) != (publicacion_destino_id is None):
@@ -46,11 +45,11 @@ class TruequeService:
         return trueque
 
     async def listar_trueques_usuario(
-        self, usuario_id: int, estado: Optional[str] = None
-    ) -> List[Trueque]:
+        self, usuario_id: int, estado: str | None = None, skip: int = 0, limit: int = 50
+    ) -> list[Trueque]:
         if estado and estado not in self.ESTADOS_VALIDOS:
             raise ValueError(f"Estado inválido: {estado}. Válidos: {self.ESTADOS_VALIDOS}")
-        return await self.repo.list_by_usuario(usuario_id, estado=estado)
+        return await self.repo.list_by_usuario(usuario_id, estado=estado, skip=skip, limit=limit)
 
     async def confirmar_trueque(self, trueque_id: int, usuario_id: int) -> Trueque:
         """El usuario receptor confirma la propuesta de trueque."""

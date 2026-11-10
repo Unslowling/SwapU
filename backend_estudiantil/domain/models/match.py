@@ -1,17 +1,17 @@
 from datetime import datetime, timezone
-from typing import Optional
+
 
 class Match:
     """Entidad de dominio que representa una coincidencia identificada por el motor de matching."""
 
     def __init__(
         self,
-        id: Optional[int] = None,
+        id: int | None = None,
         publicacion_origen_id: int = 0,
         publicacion_destino_id: int = 0,
         tipo_match: str = "exacta",
         puntuacion: float = 100.0,
-        fecha_creacion: Optional[datetime] = None,
+        fecha_creacion: datetime | None = None,
     ):
         self.id = id
         self.publicacion_origen_id = publicacion_origen_id

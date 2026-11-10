@@ -1,28 +1,34 @@
-from typing import Optional
-from pydantic import BaseModel, EmailStr
-from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
 from datetime import timedelta
 
-from backend_estudiantil.adapters.db.sqlalchemy_user_repository import SQLAlchemyUserRepository
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel, EmailStr
+
+from backend_estudiantil.adapters.db.sqlalchemy_user_repository import (
+    SQLAlchemyUserRepository,
+)
 from backend_estudiantil.adapters.security.jwt_authenticator import JWTAuthenticator
 from backend_estudiantil.config.settings import settings
 from backend_estudiantil.domain.models.user import User
 from backend_estudiantil.domain.services.user_service import UserService
+from backend_estudiantil.infrastructure.confirmation_rate_limiter import (
+    check_rate_limit_confirmacion,
+)
+from backend_estudiantil.infrastructure.login_rate_limiter import login_rate_limiter
 from backend_estudiantil.ports.repositories.user_repository import UserRepository
 from backend_estudiantil.ports.security.authenticator import Authenticator
 from backend_estudiantil.schemas.auth import LoginRequest, Token
 from backend_estudiantil.schemas.user import UserCreate, UserRead
 
-from fastapi.responses import HTMLResponse
 
 class SocialAuthRequest(BaseModel):
     provider: str
     email: EmailStr
-    name: Optional[str] = None
-    avatar: Optional[str] = None
-    telefono: Optional[str] = None
-    carrera: Optional[str] = None
-    universidad: Optional[str] = None
+    name: str | None = None
+    avatar: str | None = None
+    telefono: str | None = None
+    carrera: str | None = None
+    universidad: str | None = None
 
 class ConfirmarCodigoRequest(BaseModel):
     email: EmailStr
@@ -55,6 +61,7 @@ async def register(payload: UserCreate, service: UserService = Depends(get_user_
             is_active=user.is_active,
             telefono=user.telefono,
             carrera=user.programa_area,
+            facultad=getattr(user, "facultad", None),
             universidad=user.universidad,
             semestre=user.semestre,
             foto_url=user.foto_url,
@@ -66,24 +73,45 @@ async def register(payload: UserCreate, service: UserService = Depends(get_user_
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
+
 @router.post("/login", response_model=Token)
 async def login(
     payload: LoginRequest,
+    request: Request,
     response: Response,
     service: UserService = Depends(get_user_service),
     auth: Authenticator = Depends(get_authenticator),
 ):
-    """Inicio de sesión con validación bcrypt y emisión de JWT + Cookie HttpOnly."""
+    """Inicio de sesión con validación bcrypt (hilo worker), rate limiting (5 req/min e IP/email) y bloqueo temporal tras 5 fallos."""
+    # 1. Verificar rate limit y lockout
+    login_rate_limiter.check_rate_limit(request, payload.email)
+    login_rate_limiter.record_attempt(request, payload.email)
+
     repo = service.repo
     user = await repo.get_by_email(payload.email)
-    if not user:
+    credenciales_validas = False
+    if user and user.password_hash:
+        credenciales_validas = await service._verify_password(payload.password, user.password_hash)
+
+    if not credenciales_validas:
+        login_rate_limiter.record_failed_attempt(request, payload.email)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
 
-    if not service._verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
+    # Éxito: limpiar contadores de fallos
+    login_rate_limiter.record_successful_attempt(request, payload.email)
 
-    if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cuenta inactiva o suspendida")
+    from backend_estudiantil.domain.services.moderacion_sanciones_service import (
+        usuario_puede_operar,
+    )
+    res_op = usuario_puede_operar(user)
+    if not res_op.puede_operar:
+        fin_str = f" Fecha de fin: {res_op.fecha_fin.isoformat()}." if res_op.fecha_fin else ""
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Tu cuenta se encuentra {res_op.estado_cuenta}. Motivo: {res_op.motivo}.{fin_str}",
+        )
+    if user.estado_cuenta == "activo" and getattr(user, "_suspension_expirada", False):
+        await repo.update(user)
 
     # Crear tokens incluyendo rol (sub debe ser string según el estándar JWT)
     access_token = auth.create_access_token({"sub": str(user.id), "role": user.rol})
@@ -110,6 +138,10 @@ async def login(
 async def refresh_token(request: Request, auth: Authenticator = Depends(get_authenticator)):
     """Renovación del Access Token a partir de la cookie HttpOnly."""
     refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        auth_header = request.headers.get("authorization")
+        if auth_header and auth_header.lower().startswith("bearer "):
+            refresh_token = auth_header.split(" ", 1)[1]
     if not refresh_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token faltante en cookies")
     try:
@@ -157,7 +189,7 @@ async def social_login(
             name=payload.name or payload.email.split("@")[0],
             rol="usuario",
             estado_cuenta="activo",
-            verificado_comunidad=es_inst,
+            verificado_comunidad=False if (payload.provider or "").lower() == "facebook" else es_inst,
             telefono=payload.telefono or "",
             programa_area=payload.carrera or "Estudiante Universitario",
             universidad=universidad,
@@ -189,7 +221,7 @@ async def social_login(
         expires_in=float(timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES).total_seconds()),
     )
 
-@router.post("/confirmar-codigo")
+@router.post("/confirmar-codigo", dependencies=[Depends(check_rate_limit_confirmacion)])
 async def confirmar_codigo(
     payload: ConfirmarCodigoRequest,
     service: UserService = Depends(get_user_service),
@@ -205,7 +237,7 @@ async def confirmar_codigo(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-@router.get("/confirmar-correo", response_class=HTMLResponse)
+@router.get("/confirmar-correo", response_class=HTMLResponse, dependencies=[Depends(check_rate_limit_confirmacion)])
 async def confirmar_correo(
     email: str,
     codigo: str,
@@ -214,12 +246,6 @@ async def confirmar_correo(
     """Enlace directo de confirmación para el correo institucional."""
     try:
         user = await service.confirmar_codigo_verificacion(email, codigo)
-        es_usbmed = "usbmed.edu.co" in (email or "").lower() or "buenaventura" in (user.universidad or "").lower()
-        titulo = "🎓 ¡Felicitaciones Bonaventuriano!" if es_usbmed else "✓ ¡Correo Verificado!"
-        desc_univ = "Universidad de San Buenaventura Medellín (USBMED)" if es_usbmed else (user.universidad or "tu universidad")
-        badge_text = "Estudiante USBMED Verificado" if es_usbmed else "Estudiante Verificado"
-        btn_color = "#ea580c" if es_usbmed else "#4f46e5"
-
         return f"""
         <!DOCTYPE html>
         <html lang="es">
@@ -228,21 +254,18 @@ async def confirmar_correo(
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Correo Verificado - SwapU</title>
             <style>
-                body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0c0a09; color: #fafaf9; }}
-                .card {{ background: #1c1917; padding: 2.5rem; border-radius: 14px; border: 1px solid #44403c; text-align: center; max-width: 480px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); }}
-                h1 {{ color: {btn_color}; margin-top: 0; font-size: 1.6rem; }}
-                p {{ color: #a8a29e; line-height: 1.6; font-size: 0.95rem; }}
-                .badge {{ display: inline-block; background: rgba(234, 88, 12, 0.2); color: #fb923c; border: 1px solid rgba(251, 146, 60, 0.4); padding: 0.35rem 0.85rem; border-radius: 999px; font-weight: 700; font-size: 0.85rem; margin: 0.5rem 0 1rem 0; }}
-                .btn {{ display: inline-block; margin-top: 1.5rem; padding: 0.85rem 1.8rem; background: {btn_color}; color: white; text-decoration: none; border-radius: 8px; font-weight: 700; }}
+                body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f8fafc; }}
+                .card {{ background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); text-align: center; max-width: 450px; }}
+                h1 {{ color: #16a34a; margin-top: 0; }}
+                p {{ color: #475569; line-height: 1.5; }}
+                .btn {{ display: inline-block; margin-top: 1.5rem; padding: 0.75rem 1.5rem; background: #4f46e5; color: white; text-decoration: none; border-radius: 8px; font-weight: 600; }}
             </style>
         </head>
         <body>
             <div class="card">
-                <h1>{titulo}</h1>
-                <div class="badge">🏷 {badge_text}</div>
-                <p>Tu correo institucional <strong>{email}</strong> ha sido confirmado con éxito. Tu cuenta ahora cuenta con el distintivo oficial de <strong>{badge_text}</strong> en {desc_univ}.</p>
-                <p style="font-size: 0.85rem; color: #78716c;">Tienes acceso preferencial a matches académicos y entregas comunitarias en campus.</p>
-                <a href="/" class="btn">Ingresar a SwapU</a>
+                <h1>✓ ¡Correo Verificado!</h1>
+                <p>Tu correo institucional <strong>{email}</strong> ha sido confirmado con éxito. Tu cuenta ahora cuenta con el distintivo de <strong>Estudiante Verificado</strong> en {user.universidad or 'tu universidad'}.</p>
+                <a href="/" class="btn">Ir a SwapU</a>
             </div>
         </body>
         </html>
@@ -266,22 +289,22 @@ async def confirmar_correo(
         <body>
             <div class="card">
                 <h1>⚠ No se pudo verificar</h1>
-                <p>{str(e)}</p>
+                <p>{e!s}</p>
                 <a href="/" class="btn">Volver a SwapU</a>
             </div>
         </body>
         </html>
         """
 
-@router.post("/reenviar-codigo")
+@router.post("/reenviar-codigo", dependencies=[Depends(check_rate_limit_confirmacion)])
 async def reenviar_codigo(
     payload: ReenviarCodigoRequest,
     service: UserService = Depends(get_user_service),
 ):
-    """Reenvía un nuevo código de confirmación al correo institucional."""
+    """Reenvía un nuevo código de confirmación al correo institucional con respuesta genérica."""
     try:
         await service.reenviar_codigo_verificacion(payload.email)
-        return {"message": "Código de confirmación reenviado exitosamente"}
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception:
+        pass
+    return {"message": "Si el correo corresponde a una cuenta registrada con dominio institucional, se ha enviado un código de confirmación."}
 

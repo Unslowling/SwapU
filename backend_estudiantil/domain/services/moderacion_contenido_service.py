@@ -20,7 +20,6 @@ Normalización de texto:
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Optional, List, Tuple
 
 
 @dataclass
@@ -28,11 +27,11 @@ class ResultadoModeracion:
     """Resultado del análisis de moderación de contenido."""
     es_valido: bool
     texto_final: str
-    nivel_severidad: Optional[str] = None  # None, "leve", "media", "grave"
-    accion: Optional[str] = None           # None, "enmascarar", "advertir", "bloquear"
-    terminos_detectados: List[str] = field(default_factory=list)
-    accion_auditoria: Optional[str] = None # INFRACCION_VOCABULARIO, ADVERTENCIA_APLICADA, SANCION_APLICADA
-    mensaje_error: Optional[str] = None
+    nivel_severidad: str | None = None  # None, "leve", "media", "grave"
+    accion: str | None = None           # None, "enmascarar", "advertir", "bloquear"
+    terminos_detectados: list[str] = field(default_factory=list)
+    accion_auditoria: str | None = None # INFRACCION_VOCABULARIO, ADVERTENCIA_APLICADA, SANCION_APLICADA
+    mensaje_error: str | None = None
 
 
 class ModeracionContenidoService:
@@ -48,8 +47,8 @@ class ModeracionContenidoService:
 
     # Términos medios en español / Colombia -> Advertir y rechazar
     TERMINOS_MEDIOS = [
-        "gonorrea", "malparido", "malparida", "carechimba", "pirobo", "piroba",
-        "careverga", "hijo de puta", "hija de puta", "hpta", "hijueputa", "hp",
+        "gonorrea", "gonorea", "malparido", "malparida", "carechimba", "pirobo", "piroba",
+        "careverga", "hijo de puta", "hija de puta", "hpta", "hijueputa", "hp", "puta", "puto",
         "culiao", "sapo hijueputa", "guiso", "guisa", "marica", "perra", "zorra",
         "chucha", "careculo",
     ]
@@ -62,6 +61,24 @@ class ModeracionContenidoService:
         "narcotrafico", "marihuana", "estupefaciente",
     ]
 
+    # Patrones para políticas de publicación (enlaces, datos personales y ventas en dinero)
+    PATRON_ENLACES = re.compile(
+        r"(https?://\S+|www\.\S+|[a-zA-Z0-9_\-\.]+\.(?:com|org|net|co|io|edu|gov|xyz|me|info|biz|site)\b)",
+        re.IGNORECASE,
+    )
+    PATRON_TELEFONOS = re.compile(
+        r"(\+?57[\s\.\-]?)?3\d{2}[\s\.\-]?\d{3}[\s\.\-]?\d{4}|\b3\d{9}\b|\b(?:\d[\s\.\-]?){7,10}\b"
+    )
+    PATRON_CORREOS = re.compile(
+        r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+    )
+    TERMINOS_VENTA_DINERO = [
+        "vendo", "a la venta", "en venta", "precio", "pesos", "cop", "dolares",
+        "usd", "transferencia", "nequi", "daviplata", "bancolombia", "consignacion",
+        "efectivo", "remato", "costo", "recibo plata", "recibo dinero", "pago por",
+    ]
+    PATRON_DINERO = re.compile(r"(\$\s*\d+|\b\d+\s*(?:mil\s*pesos|pesos|cop|usd|dolares)\b)", re.IGNORECASE)
+
     # Mapeo de leetspeak
     LEET_MAP = {
         "@": "a", "4": "a",
@@ -69,7 +86,7 @@ class ModeracionContenidoService:
         "1": "i", "!": "i", "|": "i",
         "0": "o",
         "5": "s", "$": "s",
-        "7": "t",
+        "7": "t", "+": "t",
         "8": "b",
     }
 
@@ -120,7 +137,8 @@ class ModeracionContenidoService:
         detectados_graves = []
         for termino in self.TERMINOS_GRAVES:
             norm_term = self.normalizar(termino)
-            patron = rf"\b{re.escape(norm_term)}\b"
+            norm_term_colapsado = re.sub(r"(.)\1+", r"\1", norm_term)
+            patron = rf"\b(?:{re.escape(norm_term)}|{re.escape(norm_term_colapsado)})\b"
             if re.search(patron, norm) or (len(norm_term) >= 5 and norm_term in compact):
                 detectados_graves.append(termino)
 
@@ -139,8 +157,9 @@ class ModeracionContenidoService:
         detectados_medios = []
         for termino in self.TERMINOS_MEDIOS:
             norm_term = self.normalizar(termino)
-            patron = rf"\b{re.escape(norm_term)}\b"
-            if re.search(patron, norm) or (len(norm_term) >= 4 and norm_term in compact):
+            norm_term_colapsado = re.sub(r"(.)\1+", r"\1", norm_term)
+            patron = rf"\b(?:{re.escape(norm_term)}|{re.escape(norm_term_colapsado)})\b"
+            if re.search(patron, norm) or (len(norm_term) >= 5 and norm_term in compact) or (norm_term == "hpta" and norm_term in compact):
                 detectados_medios.append(termino)
 
         if detectados_medios:
@@ -159,17 +178,18 @@ class ModeracionContenidoService:
         detectados_leves = []
         for termino in self.TERMINOS_LEVES:
             norm_term = self.normalizar(termino)
-            patron = rf"\b{re.escape(norm_term)}\b"
+            norm_term_colapsado = re.sub(r"(.)\1+", r"\1", norm_term)
+            patron = rf"\b(?:{re.escape(norm_term)}|{re.escape(norm_term_colapsado)})\b"
             # Buscar en el texto original preservando mayúsculas/minúsculas
             coincidencias = list(re.finditer(rf"\b{re.escape(termino)}\b", texto_enmascarado, re.IGNORECASE))
             if not coincidencias:
-                # Buscar con forma normalizada
+                # Buscar con forma normalizada y colapsada
                 if re.search(patron, norm):
                     detectados_leves.append(termino)
-                    # Reemplazo enmascarado
+                    patron_rep = r"(?i)\b" + "".join(f"{re.escape(c)}+" for c in termino) + r"\b"
                     texto_enmascarado = re.sub(
-                        rf"(?i)\b{re.escape(termino)}\b",
-                        self._enmascarar_palabra(termino),
+                        patron_rep,
+                        lambda m: self._enmascarar_palabra(m.group(0)),
                         texto_enmascarado
                     )
             else:
@@ -199,3 +219,74 @@ class ModeracionContenidoService:
             accion_auditoria=None,
             mensaje_error=None,
         )
+
+    def procesar_contenido_publicacion(self, texto: str, campo: str = "campo") -> ResultadoModeracion:
+        """Aplica las políticas de publicación sobre título o descripción:
+        1. Bloquea enlaces externos.
+        2. Bloquea números de teléfono y correos/datos personales de contacto directo.
+        3. Bloquea ofertas de venta con dinero (la plataforma es exclusivamente de trueque).
+        4. Aplica el filtro de vocabulario prohibido (graves, medios, leves).
+        """
+        if not texto or not texto.strip():
+            return ResultadoModeracion(es_valido=True, texto_final=texto or "")
+
+        # 1. Enlaces externos
+        if self.PATRON_ENLACES.search(texto):
+            return ResultadoModeracion(
+                es_valido=False,
+                texto_final=texto,
+                nivel_severidad="media",
+                accion="advertir",
+                accion_auditoria="ADVERTENCIA_APLICADA",
+                mensaje_error=f"El campo '{campo}' contiene enlaces externos no permitidos.",
+            )
+
+        # 2. Teléfonos o correos personales (ignorando patrones de ISBN legítimos)
+        texto_sin_isbn = re.sub(r"(?i)\bisbn(?:[\s:-]*[\dX-]{10,17})\b", " ", texto)
+        if self.PATRON_CORREOS.search(texto) or self.PATRON_TELEFONOS.search(texto_sin_isbn):
+            return ResultadoModeracion(
+                es_valido=False,
+                texto_final=texto,
+                nivel_severidad="media",
+                accion="advertir",
+                accion_auditoria="ADVERTENCIA_APLICADA",
+                mensaje_error=f"El campo '{campo}' contiene teléfonos o datos de contacto personal no permitidos. Usa el chat interno.",
+            )
+
+        # 3. Ofertas de venta monetaria
+        norm = self.normalizar(texto)
+        if self.PATRON_DINERO.search(texto):
+            return ResultadoModeracion(
+                es_valido=False,
+                texto_final=texto,
+                nivel_severidad="media",
+                accion="advertir",
+                accion_auditoria="ADVERTENCIA_APLICADA",
+                mensaje_error=f"El campo '{campo}' contiene ofertas de venta monetaria. Esta es una plataforma exclusiva de trueque e intercambio.",
+            )
+
+        for term in self.TERMINOS_VENTA_DINERO:
+            norm_term = self.normalizar(term)
+            coincidencias = list(re.finditer(rf"\b{re.escape(norm_term)}\b", norm))
+            es_venta_real = False
+            for m in coincidencias:
+                inicio_contexto = max(0, m.start() - 30)
+                contexto_previo = norm[inicio_contexto:m.start()]
+                if re.search(r"\b(?:no\s+(?:lo|la|se|es|esta|estan|queda|para)?|nada\s+de|sin|cero)\s*$", contexto_previo, re.IGNORECASE):
+                    continue
+                es_venta_real = True
+                break
+
+            if es_venta_real:
+                return ResultadoModeracion(
+                    es_valido=False,
+                    texto_final=texto,
+                    nivel_severidad="media",
+                    accion="advertir",
+                    accion_auditoria="ADVERTENCIA_APLICADA",
+                    mensaje_error=f"El campo '{campo}' contiene términos de venta con dinero ('{term}'). La plataforma es exclusivamente para trueque.",
+                )
+
+        # 4. Vocabulario ofensivo general
+        return self.procesar_texto(texto)
+

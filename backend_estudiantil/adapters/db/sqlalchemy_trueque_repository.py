@@ -1,4 +1,4 @@
-from typing import List, Optional
+
 from sqlalchemy import and_, or_
 from sqlalchemy.future import select
 
@@ -34,7 +34,7 @@ class SQLAlchemyTruequeRepository(TruequeRepository):
             fecha_completado=orm.fecha_completado,
         )
 
-    async def get_by_id(self, trueque_id: int) -> Optional[Trueque]:
+    async def get_by_id(self, trueque_id: int) -> Trueque | None:
         async with self.session_factory() as session:
             result = await session.execute(
                 select(TruequeORM).where(TruequeORM.id == trueque_id)
@@ -42,7 +42,9 @@ class SQLAlchemyTruequeRepository(TruequeRepository):
             orm = result.scalar_one_or_none()
             return self._to_entity(orm) if orm else None
 
-    async def list_by_usuario(self, usuario_id: int, estado: Optional[str] = None) -> List[Trueque]:
+    async def list_by_usuario(
+        self, usuario_id: int, estado: str | None = None, skip: int = 0, limit: int = 50
+    ) -> list[Trueque]:
         """Retorna trueques en los que el usuario participa (como proponente o receptor)."""
         async with self.session_factory() as session:
             from sqlalchemy import or_
@@ -54,6 +56,7 @@ class SQLAlchemyTruequeRepository(TruequeRepository):
             )
             if estado:
                 query = query.where(TruequeORM.estado == estado)
+            query = query.order_by(TruequeORM.id.desc()).offset(skip).limit(limit)
             result = await session.execute(query)
             orms = result.scalars().all()
             return [self._to_entity(o) for o in orms]
@@ -76,7 +79,7 @@ class SQLAlchemyTruequeRepository(TruequeRepository):
         usuario_propone_id: int,
         publicacion_origen_id: int,
         publicacion_destino_id: int,
-        usuario_recibe_id: Optional[int] = None,
+        usuario_recibe_id: int | None = None,
     ) -> Trueque:
         async with self.session_factory() as session:
             result = await session.execute(
@@ -159,7 +162,7 @@ class SQLAlchemyTruequeRepository(TruequeRepository):
         self,
         usuario_propone_id: int,
         match_id: int,
-        usuario_recibe_id: Optional[int] = None,
+        usuario_recibe_id: int | None = None,
     ) -> Trueque:
         async with self.session_factory() as session:
             result = await session.execute(

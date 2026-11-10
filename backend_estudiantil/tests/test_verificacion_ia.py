@@ -3,9 +3,10 @@ import pytest
 from PIL import Image, ImageDraw
 from backend_estudiantil.infrastructure.verificacion_ia import (
     _codigo_presente,
-    _clasificar_imagen,
     verificar_imagen,
 )
+
+pytestmark = pytest.mark.unit
 
 
 def test_codigo_presente_exacto():

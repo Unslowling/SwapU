@@ -1,17 +1,18 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional
+
 from backend_estudiantil.domain.models.user import User
+
 
 class UserRepository(ABC):
     """Puerto (interfaz) para las operaciones de persistencia del usuario."""
 
     @abstractmethod
-    async def get_by_id(self, user_id: str) -> Optional[User]:
+    async def get_by_id(self, user_id: str) -> User | None:
         """Obtiene un usuario por su ID."""
         ...
 
     @abstractmethod
-    async def get_by_email(self, email: str) -> Optional[User]:
+    async def get_by_email(self, email: str) -> User | None:
         """Obtiene un usuario por su correo electrónico."""
         ...
 
@@ -31,6 +32,6 @@ class UserRepository(ABC):
         ...
 
     @abstractmethod
-    async def list(self, skip: int = 0, limit: int = 100) -> List[User]:
+    async def list(self, skip: int = 0, limit: int = 100) -> list[User]:
         """Lista usuarios con paginación."""
         ...

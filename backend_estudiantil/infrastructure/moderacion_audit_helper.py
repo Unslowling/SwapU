@@ -6,12 +6,12 @@ y moderación en la base de datos (AuditoriaLogORM), cumpliendo la regla de las 
 y protegiendo la privacidad al NO almacenar el texto completo del mensaje.
 """
 
-from typing import Optional
+
 from backend_estudiantil.adapters.db import AuditoriaLogORM, get_session_factory
 
 
 async def registrar_auditoria_infraccion(
-    usuario_id: Optional[int],
+    usuario_id: int | None,
     recurso: str,
     accion: str,
     severidad: str,
@@ -20,8 +20,8 @@ async def registrar_auditoria_infraccion(
     metodo_http: str = "POST",
     endpoint: str = "",
     estado_http: int = 400,
-    usuario_email: Optional[str] = None,
-    usuario_rol: Optional[str] = None,
+    usuario_email: str | None = None,
+    usuario_rol: str | None = None,
     terminos_count: int = 1,
 ) -> None:
     """

@@ -1,19 +1,19 @@
 from datetime import datetime, timezone
-from typing import Optional
+
 
 class Trueque:
     """Entidad de dominio que gestiona el estado y ciclo de vida de un intercambio de libros."""
 
     def __init__(
         self,
-        id: Optional[int] = None,
-        match_id: Optional[int] = None,
+        id: int | None = None,
+        match_id: int | None = None,
         usuario_propone_id: int = 0,
         usuario_recibe_id: int = 0,
         estado: str = "propuesto",
-        fecha_propuesta: Optional[datetime] = None,
-        fecha_confirmacion: Optional[datetime] = None,
-        fecha_completado: Optional[datetime] = None,
+        fecha_propuesta: datetime | None = None,
+        fecha_confirmacion: datetime | None = None,
+        fecha_completado: datetime | None = None,
     ):
         self.id = id
         self.match_id = match_id
@@ -28,13 +28,13 @@ class Trueque:
         if self.estado != "propuesto":
             raise ValueError(f"No se puede confirmar un trueque en estado '{self.estado}'")
         self.estado = "confirmado"
-        self.fecha_confirmacion = datetime.now(timezone.utc)
+        self.fecha_confirmacion = datetime.utcnow()
 
     def completar(self):
         if self.estado not in ("propuesto", "confirmado"):
             raise ValueError(f"No se puede completar un trueque en estado '{self.estado}'")
         self.estado = "completado"
-        self.fecha_completado = datetime.now(timezone.utc)
+        self.fecha_completado = datetime.utcnow()
 
     def rechazar(self):
         if self.estado == "completado":

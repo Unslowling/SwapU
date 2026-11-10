@@ -1,11 +1,13 @@
-from typing import List, Optional
-from sqlalchemy.future import select
-from sqlalchemy import or_, cast, String
 
+from sqlalchemy import String, cast, func, or_
+from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 
 from backend_estudiantil.adapters.db import PublicacionORM, get_session_factory
 from backend_estudiantil.domain.models.publicacion import Publicacion
-from backend_estudiantil.ports.repositories.publicacion_repository import PublicacionRepository
+from backend_estudiantil.ports.repositories.publicacion_repository import (
+    PublicacionRepository,
+)
 
 
 class SQLAlchemyPublicacionRepository(PublicacionRepository):
@@ -19,6 +21,21 @@ class SQLAlchemyPublicacionRepository(PublicacionRepository):
         return self._session_factory if self._session_factory is not None else get_session_factory()
 
     def _to_entity(self, orm: PublicacionORM) -> Publicacion:
+        usuario_nombre = None
+        usuario_carrera = None
+        usuario_universidad = None
+        usuario_avatar = None
+        categoria_nombre = None
+
+        if orm.__dict__.get("usuario"):
+            u = orm.__dict__["usuario"]
+            usuario_nombre = f"{u.nombre} {u.apellido or ''}".strip()
+            usuario_carrera = getattr(u, "programa_area", None)
+            usuario_universidad = getattr(u, "universidad", None)
+            usuario_avatar = getattr(u, "foto_url", None)
+        if orm.__dict__.get("categoria"):
+            categoria_nombre = orm.__dict__["categoria"].nombre
+
         return Publicacion(
             id=orm.id,
             usuario_id=orm.usuario_id,
@@ -32,12 +49,22 @@ class SQLAlchemyPublicacionRepository(PublicacionRepository):
             libro_buscado=orm.libro_buscado,
             estado_publicacion=orm.estado_publicacion,
             fecha_publicacion=orm.fecha_publicacion,
+            tipo_transaccion=getattr(orm, "tipo_transaccion", "trueque") or "trueque",
+            fecha_devolucion=getattr(orm, "fecha_devolucion", None),
+            organizacion_id=getattr(orm, "organizacion_id", None),
+            usuario_nombre=usuario_nombre,
+            usuario_carrera=usuario_carrera,
+            usuario_universidad=usuario_universidad,
+            usuario_avatar=usuario_avatar,
+            categoria_nombre=categoria_nombre,
         )
 
-    async def get_by_id(self, publicacion_id: int) -> Optional[Publicacion]:
+    async def get_by_id(self, publicacion_id: int) -> Publicacion | None:
         async with self.session_factory() as session:
             result = await session.execute(
-                select(PublicacionORM).where(PublicacionORM.id == publicacion_id)
+                select(PublicacionORM)
+                .options(selectinload(PublicacionORM.usuario), selectinload(PublicacionORM.categoria))
+                .where(PublicacionORM.id == publicacion_id)
             )
             orm = result.scalar_one_or_none()
             return self._to_entity(orm) if orm else None
@@ -46,12 +73,19 @@ class SQLAlchemyPublicacionRepository(PublicacionRepository):
         self,
         skip: int = 0,
         limit: int = 50,
-        categoria_id: Optional[int] = None,
-        busqueda: Optional[str] = None,
-    ) -> List[Publicacion]:
+        categoria_id: int | None = None,
+        busqueda: str | None = None,
+        organizacion_id: int | None = None,
+    ) -> list[Publicacion]:
         async with self.session_factory() as session:
-            query = select(PublicacionORM).where(cast(PublicacionORM.estado_publicacion, String) == "activa")
+            query = (
+                select(PublicacionORM)
+                .options(selectinload(PublicacionORM.usuario), selectinload(PublicacionORM.categoria))
+                .where(cast(PublicacionORM.estado_publicacion, String) == "activa")
+            )
 
+            if organizacion_id is not None:
+                query = query.where(PublicacionORM.organizacion_id == organizacion_id)
 
             if categoria_id is not None:
                 query = query.where(PublicacionORM.categoria_id == categoria_id)
@@ -67,18 +101,30 @@ class SQLAlchemyPublicacionRepository(PublicacionRepository):
                     )
                 )
 
-            query = query.offset(skip).limit(limit)
+            query = query.order_by(PublicacionORM.fecha_publicacion.desc()).offset(skip).limit(limit)
             result = await session.execute(query)
             orms = result.scalars().all()
             return [self._to_entity(o) for o in orms]
 
-    async def list_by_usuario(self, usuario_id: int) -> List[Publicacion]:
+    async def list_by_usuario(self, usuario_id: int) -> list[Publicacion]:
         async with self.session_factory() as session:
             result = await session.execute(
-                select(PublicacionORM).where(PublicacionORM.usuario_id == usuario_id)
+                select(PublicacionORM)
+                .options(selectinload(PublicacionORM.usuario), selectinload(PublicacionORM.categoria))
+                .where(PublicacionORM.usuario_id == usuario_id)
             )
             orms = result.scalars().all()
             return [self._to_entity(o) for o in orms]
+
+    async def count_activas_by_usuario(self, usuario_id: int) -> int:
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(func.count(PublicacionORM.id)).where(
+                    PublicacionORM.usuario_id == usuario_id,
+                    cast(PublicacionORM.estado_publicacion, String) == "activa",
+                )
+            )
+            return result.scalar_one() or 0
 
     async def create(self, publicacion: Publicacion) -> Publicacion:
         async with self.session_factory() as session:
@@ -93,6 +139,9 @@ class SQLAlchemyPublicacionRepository(PublicacionRepository):
                 descripcion=publicacion.descripcion,
                 libro_buscado=publicacion.libro_buscado,
                 estado_publicacion=publicacion.estado_publicacion,
+                tipo_transaccion=publicacion.tipo_transaccion or "trueque",
+                fecha_devolucion=publicacion.fecha_devolucion,
+                organizacion_id=publicacion.organizacion_id,
             )
             session.add(orm)
             await session.commit()
@@ -116,6 +165,9 @@ class SQLAlchemyPublicacionRepository(PublicacionRepository):
             orm.descripcion = publicacion.descripcion
             orm.libro_buscado = publicacion.libro_buscado
             orm.estado_publicacion = publicacion.estado_publicacion
+            orm.tipo_transaccion = publicacion.tipo_transaccion or "trueque"
+            orm.fecha_devolucion = publicacion.fecha_devolucion
+            orm.organizacion_id = publicacion.organizacion_id
             await session.commit()
             await session.refresh(orm)
             return self._to_entity(orm)

@@ -1,8 +1,9 @@
-from typing import List, Optional
 
+from backend_estudiantil.config.settings import settings
 from backend_estudiantil.domain.models.calificacion import Calificacion
-from backend_estudiantil.domain.models.trueque import Trueque
-from backend_estudiantil.ports.repositories.calificacion_repository import CalificacionRepository
+from backend_estudiantil.ports.repositories.calificacion_repository import (
+    CalificacionRepository,
+)
 from backend_estudiantil.ports.repositories.trueque_repository import TruequeRepository
 
 
@@ -12,7 +13,7 @@ class CalificacionService:
     Solo se puede calificar un trueque completado y una vez por participante.
     """
 
-    def __init__(self, calificacion_repo: CalificacionRepository, trueque_repo: TruequeRepository):
+    def __init__(self, calificacion_repo: CalificacionRepository, trueque_repo: TruequeRepository | None = None):
         self.calificacion_repo = calificacion_repo
         self.trueque_repo = trueque_repo
 
@@ -22,7 +23,7 @@ class CalificacionService:
         usuario_califica_id: int,
         usuario_calificado_id: int,
         estrellas: int,
-        resena: Optional[str] = None,
+        resena: str | None = None,
     ) -> Calificacion:
         """
         Registra una calificación post-trueque.
@@ -56,8 +57,12 @@ class CalificacionService:
 
         resena_limpia = resena
         if resena and resena.strip():
-            from backend_estudiantil.domain.services.moderacion_contenido_service import ModeracionContenidoService
-            from backend_estudiantil.infrastructure.moderacion_audit_helper import registrar_auditoria_infraccion
+            from backend_estudiantil.domain.services.moderacion_contenido_service import (
+                ModeracionContenidoService,
+            )
+            from backend_estudiantil.infrastructure.moderacion_audit_helper import (
+                registrar_auditoria_infraccion,
+            )
             mod = ModeracionContenidoService()
             res = mod.procesar_texto(resena)
             if res.accion_auditoria:
@@ -87,25 +92,42 @@ class CalificacionService:
 
     async def obtener_reputacion_usuario(self, usuario_id: int) -> dict:
         """
-        Calcula la reputación promedio de un usuario basada en sus calificaciones recibidas.
+        Calcula la reputación bayesiana de un usuario:
+          (C * m + suma_de_estrellas) / (C + n)
+        con m = media global de la plataforma y C configurable en settings.
+        Retorna además el nivel de reputación ('nuevo', 'confiable', 'destacado').
         """
         calificaciones = await self.calificacion_repo.list_by_usuario_calificado(usuario_id)
+        media_global, total_global = await self.calificacion_repo.get_global_rating_stats()
 
-        if not calificaciones:
-            return {
-                "usuario_id": usuario_id,
-                "promedio_estrellas": None,
-                "total_calificaciones": 0,
-                "calificaciones": [],
-            }
+        n = len(calificaciones)
+        c_param = float(settings.BAYESIAN_C)
+        m_param = media_global
 
-        total = sum(c.estrellas for c in calificaciones)
-        promedio = round(total / len(calificaciones), 2)
+        if n == 0:
+            bayesiano = None
+            nivel = "nuevo"
+            promedio_simple = None
+        else:
+            suma_estrellas = sum(c.estrellas for c in calificaciones)
+            promedio_simple = round(suma_estrellas / n, 2)
+            bayesiano = round((c_param * m_param + suma_estrellas) / (c_param + n), 2)
+
+            if n < settings.REPUTACION_MIN_RESENAS_CONFIABLE:
+                nivel = "nuevo"
+            elif n >= settings.REPUTACION_MIN_RESENAS_DESTACADO and bayesiano >= settings.REPUTACION_UMBRAL_DESTACADO:
+                nivel = "destacado"
+            else:
+                nivel = "confiable"
 
         return {
             "usuario_id": usuario_id,
-            "promedio_estrellas": promedio,
-            "total_calificaciones": len(calificaciones),
+            "promedio_estrellas": bayesiano,
+            "promedio_simple": promedio_simple,
+            "promedio_bayesiano": bayesiano,
+            "nivel": nivel,
+            "total_calificaciones": n,
+            "media_global": round(m_param, 2),
             "calificaciones": [
                 {
                     "id": c.id,
@@ -119,5 +141,5 @@ class CalificacionService:
             ],
         }
 
-    async def listar_calificaciones_usuario(self, usuario_id: int) -> List[Calificacion]:
+    async def listar_calificaciones_usuario(self, usuario_id: int) -> list[Calificacion]:
         return await self.calificacion_repo.list_by_usuario_calificado(usuario_id)

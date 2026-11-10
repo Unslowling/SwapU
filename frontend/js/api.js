@@ -21,8 +21,9 @@ class ApiService {
     }
 
     _initLocalStore() {
-        const versionKey = "swapu_v9_thematic_book_covers";
+        const versionKey = "swapu_v14_usbmed_clean_books";
         if (!localStorage.getItem(versionKey)) {
+            localStorage.setItem(this.storageKeyUsers, JSON.stringify(MOCK_USUARIOS));
             localStorage.setItem(this.storageKeyBooks, JSON.stringify(MOCK_PUBLICACIONES));
             localStorage.setItem(this.storageKeyTrades, JSON.stringify(MOCK_TRUEQUES));
             localStorage.setItem(this.storageKeyMessages, JSON.stringify(MOCK_MENSAJES));
@@ -87,11 +88,45 @@ class ApiService {
             headers["Authorization"] = `Bearer ${token}`;
         }
 
+        const fetchOptions = {
+            ...options,
+            headers,
+            credentials: options.credentials || "include"
+        };
+
         try {
-            const res = await fetch(`${this.baseUrl}${endpoint}`, {
-                ...options,
-                headers
-            });
+            let res = await fetch(`${this.baseUrl}${endpoint}`, fetchOptions);
+
+            // Renovación automática transparente: si recibimos 401 y hay una cookie de refresh válida
+            if (res.status === 401 && endpoint !== "/auth/login" && endpoint !== "/auth/refresh") {
+                try {
+                    const refreshRes = await fetch(`${this.baseUrl}/auth/refresh`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include"
+                    });
+                    if (refreshRes.ok) {
+                        const refreshData = await refreshRes.json();
+                        if (refreshData && refreshData.access_token) {
+                            this.setToken(refreshData.access_token);
+                            headers["Authorization"] = `Bearer ${refreshData.access_token}`;
+                            // Reintentar la solicitud original con el nuevo token de acceso
+                            const retryRes = await fetch(`${this.baseUrl}${endpoint}`, {
+                                ...options,
+                                headers,
+                                credentials: "include"
+                            });
+                            if (retryRes.ok) {
+                                return await retryRes.json();
+                            }
+                            res = retryRes;
+                        }
+                    }
+                } catch (refreshErr) {
+                    console.warn("No se pudo renovar la sesión automáticamente:", refreshErr);
+                }
+            }
+
             if (!res.ok) {
                 const errData = await res.json().catch(() => ({ detail: res.statusText }));
                 const detail = errData.detail || "Error en la solicitud al servidor";
@@ -139,6 +174,7 @@ class ApiService {
             password: userData.password,
             telefono: userData.telefono || "",
             carrera: userData.carrera || "",
+            facultad: userData.facultad || "",
             semestre: userData.semestre || null,
             universidad: userData.universidad || ""
         };
@@ -239,6 +275,7 @@ class ApiService {
                 role: data.role || "usuario",
                 is_active: data.is_active !== false,
                 telefono: data.telefono || "",
+                facultad: data.facultad || "",
                 carrera: data.carrera || "",
                 universidad: data.universidad || "",
                 semestre: data.semestre || null,
@@ -246,6 +283,9 @@ class ApiService {
                 verificado_comunidad: data.verificado_comunidad || false,
                 perfil_completo: data.perfil_completo || false,
                 verificado: data.verificado_comunidad || false,
+                insignia_estudiante_verificado: data.insignia_estudiante_verificado || false,
+                carnet_estado: data.carnet_estado || null,
+                carnet_rechazo_motivo: data.carnet_rechazo_motivo || null,
                 avatar: data.foto_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=ea580c&color=fff&size=150`,
                 reputacion: { promedio: 5.0, total_calificaciones: 0 }
             };
@@ -265,6 +305,7 @@ class ApiService {
                 const fresh = {
                     ...this.getCurrentUser(),
                     name: data.name,
+                    facultad: data.facultad || updates.facultad || "",
                     carrera: data.carrera || updates.carrera,
                     universidad: data.universidad || updates.universidad,
                     telefono: data.telefono || updates.telefono,
@@ -272,6 +313,9 @@ class ApiService {
                     perfil_completo: data.perfil_completo,
                     verificado_comunidad: data.verificado_comunidad,
                     verificado: data.verificado_comunidad,
+                    insignia_estudiante_verificado: data.insignia_estudiante_verificado,
+                    carnet_estado: data.carnet_estado,
+                    carnet_rechazo_motivo: data.carnet_rechazo_motivo,
                 };
                 this.setCurrentUser(fresh);
                 return fresh;
@@ -416,9 +460,9 @@ class ApiService {
 
         return {
             ...book,
-            usuario_nombre: book.usuario_nombre || (owner ? owner.name : "Usuario #" + book.usuario_id),
-            usuario_carrera: book.usuario_carrera || (owner ? owner.carrera : "Miembro"),
-            usuario_universidad: book.usuario_universidad || (owner ? owner.universidad : "Comunidad SwapU"),
+            usuario_nombre: book.usuario_nombre || (owner ? owner.name : "Estudiante Universitario"),
+            usuario_carrera: book.usuario_carrera || (owner ? owner.carrera : "Pregrado"),
+            usuario_universidad: book.usuario_universidad || (owner ? owner.universidad : "Universidad de San Buenaventura Medellín (USBMED)"),
             usuario_reputacion: book.usuario_reputacion || (owner && owner.reputacion ? owner.reputacion.promedio : 4.9),
             usuario_avatar: book.usuario_avatar || (owner ? owner.avatar : this._getDemoAvatar(book.usuario_id)),
             portada: portada,
@@ -571,6 +615,62 @@ class ApiService {
         return await this._fetch(`/publicaciones/verificaciones/${verificationId}/revision`, {
             method: "POST",
             body: JSON.stringify({ decision, nota: note })
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // SISTEMA DE TICKETS DE REVISIÓN Y COMUNICACIÓN
+    // -------------------------------------------------------------------------
+    async getTickets(params = {}) {
+        const query = new URLSearchParams();
+        if (params.estado) query.set("estado", params.estado);
+        if (params.publicacion_id) query.set("publicacion_id", params.publicacion_id);
+        if (params.skip !== undefined) query.set("skip", params.skip);
+        if (params.limit !== undefined) query.set("limit", params.limit);
+        const qs = query.toString() ? `?${query.toString()}` : "";
+        return await this._fetch(`/tickets${qs}`);
+    }
+
+    async getMyTickets(params = {}) {
+        const query = new URLSearchParams();
+        if (params.estado) query.set("estado", params.estado);
+        const qs = query.toString() ? `?${query.toString()}` : "";
+        return await this._fetch(`/tickets/mis-tickets${qs}`);
+    }
+
+    async getPublicationTickets(publicationId) {
+        return await this._fetch(`/tickets/publicacion/${publicationId}`);
+    }
+
+    async getTicketDetail(ticketId) {
+        return await this._fetch(`/tickets/${ticketId}`);
+    }
+
+    async createTicket(ticketData) {
+        return await this._fetch("/tickets", {
+            method: "POST",
+            body: JSON.stringify(ticketData)
+        });
+    }
+
+    async sendTicketMessage(ticketId, contenido) {
+        return await this._fetch(`/tickets/${ticketId}/mensajes`, {
+            method: "POST",
+            body: JSON.stringify({ contenido })
+        });
+    }
+
+    async updateTicketStatus(ticketId, estado) {
+        return await this._fetch(`/tickets/${ticketId}/estado`, {
+            method: "PATCH",
+            body: JSON.stringify({ estado })
+        });
+    }
+
+    async createTicketFromVerification(verificationId, contenido) {
+        return await this._fetch(`/tickets/desde-verificacion/${verificationId}`, {
+            method: "POST",
+            body: JSON.stringify({ contenido })
         });
     }
 
@@ -829,6 +929,18 @@ class ApiService {
         }
     }
 
+    async reportReview(reviewId, motivo = "Contenido inapropiado") {
+        try {
+            return await this._fetch(`/calificaciones/${reviewId}/reportar`, {
+                method: "POST",
+                body: JSON.stringify({ motivo })
+            });
+        } catch (e) {
+            if (this.getToken()) throw e;
+            return { message: "Reporte registrado para revisión de moderación (modo local)" };
+        }
+    }
+
     // -------------------------------------------------------------------------
     // CHAT ASOCIADO AL TRUEQUE
     // -------------------------------------------------------------------------
@@ -893,6 +1005,64 @@ class ApiService {
             return await this._fetch("/health/db");
         } catch (e) {
             return { database: { status: "local_storage", dialecto: "navegador" } };
+        }
+    }
+
+    async getProgramasAcademicos() {
+        try {
+            return await this._fetch("/catalogo/programas");
+        } catch (e) {
+            console.warn("No se pudo obtener catálogo de programas desde el backend, usando catálogo base:", e);
+            return {
+                "facultades": [
+                    "Facultad de Ingenierías",
+                    "Facultad de Ciencias Empresariales",
+                    "Facultad de Arquitectura y Artes",
+                    "Facultad de Derecho y Ciencias Políticas",
+                    "Facultad de Psicología",
+                    "Facultad de Educación"
+                ],
+                "carreras_por_facultad": {
+                    "Facultad de Ingenierías": [
+                        "Ingeniería de Datos y Software",
+                        "Ingeniería de Sistemas Cibernéticos",
+                        "Ingeniería de Sonido",
+                        "Ingeniería Industrial",
+                        "Ingeniería Ambiental",
+                        "Ingeniería Electrónica",
+                        "Ingeniería Multimedia",
+                        "Creación de Contenidos Digitales",
+                        "Otra"
+                    ],
+                    "Facultad de Ciencias Empresariales": [
+                        "Administración de Negocios",
+                        "Contaduría Pública",
+                        "Negocios Internacionales",
+                        "Otra"
+                    ],
+                    "Facultad de Arquitectura y Artes": [
+                        "Arquitectura",
+                        "Diseño Industrial",
+                        "Otra"
+                    ],
+                    "Facultad de Derecho y Ciencias Políticas": [
+                        "Derecho",
+                        "Otra"
+                    ],
+                    "Facultad de Psicología": [
+                        "Psicología",
+                        "Otra"
+                    ],
+                    "Facultad de Educación": [
+                        "Licenciatura en Educación Preescolar",
+                        "Licenciatura en Educación Artística y Cultural",
+                        "Licenciatura en Educación Física y Deportes",
+                        "Licenciatura en Lengua Castellana",
+                        "Tecnología en Entrenamiento Deportivo",
+                        "Otra"
+                    ]
+                }
+            };
         }
     }
 }

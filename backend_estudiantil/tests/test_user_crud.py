@@ -6,21 +6,12 @@ from backend_estudiantil.infrastructure.main import app
 from backend_estudiantil.config.settings import settings
 from backend_estudiantil.adapters.db import Base, get_engine
 
+pytestmark = pytest.mark.integration
+
 @pytest_asyncio.fixture(scope="function", autouse=True)
-async def prepare_test_db():
-    """Configura una base de datos SQLite aislada para las pruebas de CRUD."""
-    original_url = settings.DATABASE_URL
-    test_db_url = "sqlite+aiosqlite:///./test_crud.db"
-    settings.DATABASE_URL = test_db_url
-    engine = get_engine(test_db_url)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+async def prepare_test_db(isolated_db):
+    """Utiliza la base de datos SQLite temporal aislada provista por conftest."""
     yield
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    settings.DATABASE_URL = original_url
-    get_engine(original_url)
 
 @pytest.mark.asyncio
 async def test_user_crud_and_promotion():

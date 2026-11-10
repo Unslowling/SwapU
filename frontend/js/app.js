@@ -8,16 +8,70 @@ document.addEventListener("DOMContentLoaded", () => {
     window.app.init();
 });
 
+const USBMED_OFERTA_ACADEMICA = {
+    "Facultad de Ingenierías": [
+        "Ingeniería de Datos y Software",
+        "Ingeniería de Sistemas Cibernéticos",
+        "Ingeniería de Sonido",
+        "Ingeniería Industrial",
+        "Ingeniería Ambiental",
+        "Ingeniería Electrónica",
+        "Ingeniería Multimedia",
+        "Creación de Contenidos Digitales",
+        "Otra"
+    ],
+    "Facultad de Ciencias Empresariales": [
+        "Administración de Negocios",
+        "Contaduría Pública",
+        "Negocios Internacionales",
+        "Otra"
+    ],
+    "Facultad de Arquitectura y Artes": [
+        "Arquitectura",
+        "Diseño Industrial",
+        "Otra"
+    ],
+    "Facultad de Derecho y Ciencias Políticas": [
+        "Derecho",
+        "Otra"
+    ],
+    "Facultad de Psicología": [
+        "Psicología",
+        "Otra"
+    ],
+    "Facultad de Educación": [
+        "Licenciatura en Educación Preescolar",
+        "Licenciatura en Educación Artística y Cultural",
+        "Licenciatura en Educación Física y Deportes",
+        "Licenciatura en Lengua Castellana",
+        "Tecnología en Entrenamiento Deportivo",
+        "Otra"
+    ]
+};
+
 class CampusSwapApp {
     constructor() {
-        this.currentView = "catalog";
-        this.activeTradeChatId = 101;
+        const validViews = ["catalog", "matches", "trades", "chat", "profile", "tickets", "admin"];
+        const hashView = (window.location.hash || "").replace(/^#/, "").trim().toLowerCase();
+        const storedView = localStorage.getItem("campus_swap_active_view") || sessionStorage.getItem("campus_swap_active_view");
+
+        let initialView = "catalog";
+        if (validViews.includes(hashView)) {
+            initialView = hashView;
+        } else if (validViews.includes(storedView)) {
+            initialView = storedView;
+        }
+
+        this.currentView = initialView;
+        const storedChatId = localStorage.getItem("campus_swap_active_chat_trade_id");
+        this.activeTradeChatId = storedChatId ? parseInt(storedChatId, 10) : 101;
         this.selectedRating = 5;
         this.books = [];
         this.trades = [];
         this.matches = [];
         this.activeCategory = null;
         this.searchQuery = "";
+        this.ofertaAcademica = { ...USBMED_OFERTA_ACADEMICA };
     }
 
     escapeHtml(value) {
@@ -30,12 +84,77 @@ class CampusSwapApp {
         })[character]);
     }
 
+    async loadProgramasAcademicos(showAlertOnError = false) {
+        try {
+            const data = await api.getProgramasAcademicos();
+            if (data && data.carreras_por_facultad && Object.keys(data.carreras_por_facultad).length > 0) {
+                this.ofertaAcademica = data.carreras_por_facultad;
+            } else if (data && typeof data === "object" && !Array.isArray(data) && Object.keys(data).length > 0) {
+                this.ofertaAcademica = data;
+            } else {
+                this.ofertaAcademica = { ...USBMED_OFERTA_ACADEMICA };
+            }
+        } catch (e) {
+            console.warn("No se pudo cargar oferta académica desde el backend, usando catálogo de respaldo:", e);
+            this.ofertaAcademica = { ...USBMED_OFERTA_ACADEMICA };
+            if (showAlertOnError) {
+                this.showToast("No se pudo conectar con el catálogo en línea. Se cargó la oferta académica local.", "warning");
+            }
+        }
+        this.populateFacultadesDropdowns();
+    }
+
+    populateFacultadesDropdowns() {
+        if (!this.ofertaAcademica || Object.keys(this.ofertaAcademica).length === 0) {
+            this.ofertaAcademica = { ...USBMED_OFERTA_ACADEMICA };
+        }
+        const facultades = Object.keys(this.ofertaAcademica);
+        ["reg-facultad", "edit-prof-facultad"].forEach(id => {
+            const select = document.getElementById(id);
+            if (!select) return;
+            const currentVal = select.value;
+            select.innerHTML = '<option value="">Seleccionar facultad...</option>' +
+                facultades.map(f => `<option value="${this.escapeHtml(f)}">${this.escapeHtml(f)}</option>`).join("");
+            if (currentVal && facultades.includes(currentVal)) {
+                select.value = currentVal;
+            }
+        });
+    }
+
+    onFacultadChange(prefix) {
+        const facSelect = document.getElementById(prefix === 'reg' ? 'reg-facultad' : 'edit-prof-facultad');
+        const carSelect = document.getElementById(prefix === 'reg' ? 'reg-carrera' : 'edit-prof-carrera');
+        const univInput = document.getElementById(prefix === 'reg' ? 'reg-univ' : 'edit-prof-univ');
+        if (!facSelect || !carSelect) return;
+        const fac = facSelect.value;
+        const oferta = this.ofertaAcademica && Object.keys(this.ofertaAcademica).length > 0
+            ? this.ofertaAcademica
+            : USBMED_OFERTA_ACADEMICA;
+
+        // Conectar facultad con universidad automáticamente si no está establecida
+        if (fac && univInput && (!univInput.value || univInput.value.trim() === "" || univInput.value.includes("Ej."))) {
+            univInput.value = "Universidad de San Buenaventura Medellín (USBMED)";
+        }
+
+        if (!fac) {
+            carSelect.innerHTML = '<option value="">Seleccionar carrera...</option>';
+            return;
+        }
+        let carreras = (oferta[fac] || []).slice();
+        if (carreras.length > 0 && !carreras.includes("Otra")) {
+            carreras.push("Otra");
+        }
+        carSelect.innerHTML = '<option value="">Seleccionar carrera...</option>' +
+            carreras.map(c => `<option value="${this.escapeHtml(c)}">${this.escapeHtml(c)}</option>`).join("");
+    }
+
     async init() {
         this._bindEvents();
         this._applyTheme();
+        await this.loadProgramasAcademicos();
         await this.loadInitialData();
         this.updateUserBadge();
-        this.renderCurrentView();
+        this.navigateTo(this.currentView, false);
     }
 
     // -------------------------------------------------------------------------
@@ -55,6 +174,15 @@ class CampusSwapApp {
                 const provName = provider ? provider.toUpperCase() : "red social";
                 this.showToast(`¡Bienvenido, ${user.name || user.email}! Sesión iniciada con ${provName}`, "success");
                 this.renderCurrentView();
+            }
+        });
+
+        // Soporte para navegación con el historial y hash en la URL
+        window.addEventListener("hashchange", () => {
+            const hashView = (window.location.hash || "").replace(/^#/, "").trim().toLowerCase();
+            const validViews = ["catalog", "matches", "trades", "chat", "profile", "tickets", "admin"];
+            if (validViews.includes(hashView) && hashView !== this.currentView) {
+                this.navigateTo(hashView, false);
             }
         });
 
@@ -87,7 +215,7 @@ class CampusSwapApp {
                 document.querySelectorAll(".category-pill").forEach(p => p.classList.remove("active"));
                 pill.classList.add("active");
                 const catId = pill.getAttribute("data-category");
-                this.activeCategory = catId === "all" ? null : (catId === "usbmed" ? "usbmed" : parseInt(catId));
+                this.activeCategory = catId === "all" ? null : parseInt(catId);
                 this.filterAndRenderBooks();
             });
         });
@@ -143,12 +271,25 @@ class CampusSwapApp {
         }
     }
 
-    navigateTo(viewName) {
+    navigateTo(viewName, updateHash = true) {
+        const validViews = ["catalog", "matches", "trades", "chat", "profile", "tickets", "admin"];
+        if (!validViews.includes(viewName)) {
+            viewName = "catalog";
+        }
+
         // Cerrar WebSocket si salimos de la vista de chat
         if (this.currentView === 'chat' && viewName !== 'chat') {
             this._closeChatWebSocket(true);
         }
         this.currentView = viewName;
+
+        // Persistir la sección actual para recargas (F5)
+        localStorage.setItem("campus_swap_active_view", viewName);
+        sessionStorage.setItem("campus_swap_active_view", viewName);
+
+        if (updateHash && window.location.hash !== `#${viewName}`) {
+            history.replaceState(null, "", `#${viewName}`);
+        }
 
         // Actualizar active en nav
         document.querySelectorAll("[data-nav]").forEach(el => {
@@ -197,6 +338,9 @@ class CampusSwapApp {
             case "admin":
                 this.renderAdminPanel();
                 break;
+            case "tickets":
+                this.renderTicketsView();
+                break;
         }
     }
 
@@ -208,14 +352,7 @@ class CampusSwapApp {
         if (!grid) return;
 
         let filtered = [...this.books];
-        if (this.activeCategory === "usbmed") {
-            filtered = filtered.filter(b => {
-                const u = (b.usuario_universidad || "").toLowerCase();
-                const d = (b.descripcion || "").toLowerCase();
-                const lb = (b.libro_buscado || "").toLowerCase();
-                return u.includes("usbmed") || u.includes("san buenaventura") || d.includes("usbmed") || lb.includes("usbmed");
-            });
-        } else if (this.activeCategory) {
+        if (this.activeCategory) {
             filtered = filtered.filter(b => b.categoria_id === this.activeCategory);
         }
         if (this.searchQuery.trim()) {
@@ -249,14 +386,6 @@ class CampusSwapApp {
                 ? book.portada_fallback
                 : (api.getThematicCover ? api.getThematicCover(book.titulo, book.categoria_id) : 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&auto=format&fit=crop&q=80');
 
-            const isBookUsbmed = (book.usuario_universidad && (
-                book.usuario_universidad.toLowerCase().includes("usbmed") ||
-                book.usuario_universidad.toLowerCase().includes("san buenaventura")
-            ));
-            const usbmedBadge = isBookUsbmed 
-                ? `<span class="badge-usbmed" title="Comunidad Bonaventuriana"><i class="fa-solid fa-graduation-cap"></i> USBMED</span>` 
-                : '';
-
             return `
             <div class="book-card">
                 <div class="book-card-header">
@@ -279,9 +408,8 @@ class CampusSwapApp {
                         <div class="owner-info">
                             <img src="${this.escapeHtml(book.usuario_avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80')}" class="owner-avatar" alt="${this.escapeHtml(book.usuario_nombre)}">
                             <div class="owner-details">
-                                <span class="owner-name" style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                                <span class="owner-name">
                                     ${this.escapeHtml(book.usuario_nombre)}
-                                    ${usbmedBadge}
                                     <i class="fa-solid fa-circle-check verified-badge" title="Usuario Verificado"></i>
                                 </span>
                                 <span class="owner-univ">${book.usuario_carrera ? `${this.escapeHtml(book.usuario_carrera)} • ` : ''}${this.escapeHtml(book.usuario_universidad || 'Comunidad')}</span>
@@ -998,6 +1126,7 @@ class CampusSwapApp {
 
     async loadChatMessages(tradeId) {
         this.activeTradeChatId = tradeId;
+        localStorage.setItem("campus_swap_active_chat_trade_id", tradeId);
         this.renderChatList();
 
         // En pantallas móviles, cerrar la barra lateral al seleccionar un chat
@@ -1560,6 +1689,17 @@ class CampusSwapApp {
         const carnetCard = document.getElementById("prof-carnet-card");
         const statPerfilEl = document.getElementById("prof-stat-perfil");
 
+        const facWrap = document.getElementById("prof-facultad-wrap");
+        const facEl = document.getElementById("prof-facultad");
+        if (facEl && facWrap) {
+            if (user.facultad) {
+                facEl.textContent = user.facultad;
+                facWrap.style.display = "inline";
+            } else {
+                facWrap.style.display = "none";
+            }
+        }
+
         if (nameEl) nameEl.textContent = user.name || "Estudiante";
         if (univEl) univEl.textContent = user.universidad || "Universidad no especificada";
         if (carreraEl) carreraEl.textContent = user.carrera || "Carrera no especificada";
@@ -1567,7 +1707,25 @@ class CampusSwapApp {
         if (telEl) telEl.textContent = user.telefono || "No registrado";
         if (avatarEl) avatarEl.src = user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'U')}&background=ea580c&color=fff&size=150`;
         if (statTrades) statTrades.textContent = user.trueques_completados ?? 0;
-        if (statRating) statRating.textContent = user.reputacion?.promedio ? Number(user.reputacion.promedio).toFixed(1) + " ★" : "5.0 ★";
+        if (statRating) {
+            const prom = user.reputacion_promedio ?? (user.reputacion?.promedio_bayesiano ?? (user.reputacion?.promedio ?? 5.0));
+            statRating.textContent = Number(prom).toFixed(1) + " ★";
+        }
+        const statNivel = document.getElementById("prof-stat-reputacion-nivel");
+        if (statNivel) {
+            const nivel = user.reputacion_nivel || (user.reputacion && user.reputacion.nivel) || "nuevo";
+            let color = "#3b82f6";
+            let label = "Nuevo";
+            if (nivel === "destacado") {
+                color = "#f59e0b";
+                label = "★ Destacado";
+            } else if (nivel === "confiable") {
+                color = "#10b981";
+                label = "✓ Confiable";
+            }
+            statNivel.textContent = label;
+            statNivel.style.color = color;
+        }
 
         // Semestre
         if (user.semestre && semWrap && semEl) {
@@ -1578,35 +1736,20 @@ class CampusSwapApp {
         }
 
         // Badge de verificación de comunidad / estudiante
-        const verificado = user.verificado_comunidad || user.verificado;
-        const isUsbmed = (user.email && user.email.toLowerCase().includes("usbmed.edu.co")) || 
-                         (user.universidad && (user.universidad.toLowerCase().includes("usbmed") || user.universidad.toLowerCase().includes("san buenaventura")));
+        const verificado = Boolean(user.verificado_comunidad || user.verificado || user.insignia_estudiante_verificado);
         if (badgeComunidad) {
             if (verificado) {
-                if (isUsbmed) {
-                    badgeComunidad.innerHTML = '<i class="fa-solid fa-graduation-cap" style="margin-right:0.3rem;"></i>Estudiante USBMED Verificado';
-                    badgeComunidad.style.background = 'linear-gradient(135deg, #ea580c, #c2410c)';
-                    badgeComunidad.style.color = '#fff';
-                } else {
-                    badgeComunidad.innerHTML = '<i class="fa-solid fa-graduation-cap" style="margin-right:0.3rem;"></i>Estudiante Verificado';
-                    badgeComunidad.style.background = 'linear-gradient(135deg, #22c55e, #16a34a)';
-                    badgeComunidad.style.color = '#fff';
-                }
+                badgeComunidad.innerHTML = '<i class="fa-solid fa-graduation-cap" style="margin-right:0.3rem;"></i>Estudiante Verificado';
+                badgeComunidad.style.background = 'linear-gradient(135deg, #22c55e, #16a34a)';
+                badgeComunidad.style.color = '#fff';
             } else {
                 badgeComunidad.innerHTML = '<i class="fa-solid fa-user-check" style="margin-right:0.3rem;"></i>Comunidad General';
                 badgeComunidad.style.background = 'linear-gradient(135deg, #64748b, #475569)';
                 badgeComunidad.style.color = '#fff';
             }
         }
-        if (statComunidad) {
-            if (verificado) {
-                statComunidad.textContent = isUsbmed ? "USBMED ✓" : "Estudiante ✓";
-                statComunidad.style.color = isUsbmed ? "#ea580c" : "var(--success)";
-            } else {
-                statComunidad.textContent = isUsbmed ? "Pendiente USBMED" : "General";
-                statComunidad.style.color = "var(--primary)";
-            }
-        }
+        if (statComunidad) statComunidad.textContent = verificado ? "Estudiante ✓" : "General";
+        if (statComunidad) statComunidad.style.color = verificado ? "var(--success)" : "var(--primary)";
 
         // Badge de completitud de perfil
         const completo = user.perfil_completo || (user.carrera && user.universidad && user.telefono);
@@ -1623,11 +1766,67 @@ class CampusSwapApp {
         }
         if (statPerfilEl) statPerfilEl.textContent = completo ? "Completo ✓" : "Incompleto";
 
-        // Mostrar tarjeta de carné solo si no está verificado
-        if (carnetCard) carnetCard.style.display = verificado ? "none" : "block";
+        // Tarjeta de verificación y estados
+        if (carnetCard) {
+            carnetCard.style.display = "block";
+            const statusEl = document.getElementById("prof-carnet-status");
+            const badgePill = document.getElementById("prof-carnet-badge-pill");
+            const formCarnet = document.getElementById("form-upload-carnet");
+            const codigoSec = document.getElementById("prof-codigo-seccion");
+            const verificadoOnly = document.getElementById("prof-verificado-only");
+            const verificadoUniv = document.getElementById("prof-verificado-univ");
+
+            if (verificado) {
+                // Si está verificado, mostrar solo la insignia
+                if (badgePill) badgePill.innerHTML = `<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: var(--success); padding: 0.25rem 0.65rem; border-radius: 999px; font-weight: 700; font-size: 0.78rem;">✓ Verificado</span>`;
+                if (verificadoOnly) {
+                    verificadoOnly.style.display = "block";
+                    if (verificadoUniv) verificadoUniv.textContent = user.universidad ? `(${user.universidad})` : "";
+                }
+                if (statusEl) statusEl.innerHTML = "";
+                if (formCarnet) formCarnet.style.display = "none";
+                if (codigoSec) codigoSec.style.display = "none";
+            } else {
+                if (verificadoOnly) verificadoOnly.style.display = "none";
+                if (formCarnet) formCarnet.style.display = "flex";
+
+                // La sección del código de 6 dígitos solo si el correo es institucional y no está confirmado
+                const esInstitucional = this.esCorreoInstitucional(user.email);
+                if (codigoSec) {
+                    codigoSec.style.display = esInstitucional ? "block" : "none";
+                }
+
+                // Estados: sin verificar, carné en revisión, rechazado (con motivo)
+                const estado = user.carnet_estado || (user.carnet_path ? "en_revision" : "sin_verificar");
+                if (estado === "en_revision") {
+                    if (badgePill) badgePill.innerHTML = `<span class="badge" style="background: rgba(234, 179, 8, 0.2); color: #eab308; padding: 0.25rem 0.65rem; border-radius: 999px; font-weight: 700; font-size: 0.78rem;"><i class="fa-solid fa-clock-rotate-left"></i> Carné en revisión</span>`;
+                    if (statusEl) {
+                        statusEl.innerHTML = `
+                            <div style="padding: 0.65rem 0.85rem; background: rgba(234, 179, 8, 0.1); border-left: 3px solid #eab308; border-radius: 4px; font-size: 0.82rem; color: #fde047;">
+                                <i class="fa-solid fa-hourglass-half" style="margin-right: 0.35rem;"></i> Tu carné estudiantil se encuentra en cola de revisión por el equipo de moderación.
+                            </div>
+                        `;
+                    }
+                } else if (estado === "rechazado") {
+                    if (badgePill) badgePill.innerHTML = `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: var(--danger); padding: 0.25rem 0.65rem; border-radius: 999px; font-weight: 700; font-size: 0.78rem;"><i class="fa-solid fa-triangle-exclamation"></i> Rechazado</span>`;
+                    const motivo = user.carnet_rechazo_motivo || "Documento no legible o no coincide con los datos del perfil";
+                    if (statusEl) {
+                        statusEl.innerHTML = `
+                            <div style="padding: 0.65rem 0.85rem; background: rgba(239, 68, 68, 0.1); border-left: 3px solid var(--danger); border-radius: 4px; font-size: 0.82rem; color: #fca5a5;">
+                                <i class="fa-solid fa-circle-exclamation" style="margin-right: 0.35rem;"></i> Solicitud rechazada. <strong>Motivo:</strong> ${this.escapeHtml(motivo)}. Puedes subir un nuevo carné válido.
+                            </div>
+                        `;
+                    }
+                } else {
+                    if (badgePill) badgePill.innerHTML = `<span class="badge" style="background: rgba(148, 163, 184, 0.2); color: var(--text-muted); padding: 0.25rem 0.65rem; border-radius: 999px; font-weight: 600; font-size: 0.78rem;">Sin verificar (opcional)</span>`;
+                    if (statusEl) statusEl.innerHTML = "";
+                }
+            }
+        }
 
         // Renderizar publicaciones propias
         const myBooks = this.books.filter(b => String(b.usuario_id) === String(user.id));
+        await this.loadStudentTickets();
         const myBooksContainer = document.getElementById("prof-my-books");
         if (myBooksContainer) {
             if (myBooks.length === 0) {
@@ -1666,31 +1865,80 @@ class CampusSwapApp {
                         </div>
                     </div>
                     <p style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.4;">${r.comentario}</p>
-                    <span style="font-size: 0.72rem; color: var(--text-muted);">${r.fecha || 'Reciente'}</span>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                        <span style="font-size: 0.72rem; color: var(--text-muted);">${r.fecha || 'Reciente'}</span>
+                        <button class="btn btn-outline btn-sm" onclick="app.promptReportReview(${r.id})" style="font-size: 0.75rem; padding: 0.2rem 0.5rem; color: var(--danger); border-color: rgba(239,68,68,0.3);">
+                            <i class="fa-solid fa-flag"></i> Reportar
+                        </button>
+                    </div>
                 </div>
             `).join("");
         }
     }
 
-    openEditProfile() {
+    async promptReportReview(reviewId) {
+        const motivo = prompt("Describe el motivo por el cual reportas esta reseña a moderación (ej. lenguaje ofensivo, datos falsos):");
+        if (!motivo || !motivo.trim()) return;
+        try {
+            const res = await api.reportReview(reviewId, motivo.trim());
+            this.showToast(res.message || "Reseña reportada para revisión de moderación", "info");
+        } catch (e) {
+            this.showToast(e.message || "Error al reportar reseña", "error");
+        }
+    }
+
+    async openEditProfile() {
         const user = api.getCurrentUser();
         const nameInput = document.getElementById("edit-prof-name");
-        const carreraInput = document.getElementById("edit-prof-carrera");
+        const facSelect = document.getElementById("edit-prof-facultad");
+        const carreraSelect = document.getElementById("edit-prof-carrera");
         const semInput = document.getElementById("edit-prof-semestre");
         const univInput = document.getElementById("edit-prof-univ");
         const telInput = document.getElementById("edit-prof-tel");
 
         if (nameInput) nameInput.value = user.name || "";
-        if (carreraInput) carreraInput.value = user.carrera || "";
         if (semInput) semInput.value = user.semestre || "";
         if (univInput) univInput.value = user.universidad || "";
         if (telInput) telInput.value = user.telefono || "";
+
+        // Cargar catálogo de programas al abrir y asegurar que las facultades estén en el desplegable
+        await this.loadProgramasAcademicos(true);
+
+        const oferta = this.ofertaAcademica || USBMED_OFERTA_ACADEMICA;
+
+        // Resolver facultad si ya existe en el perfil o si coincide con la oferta USB
+        let matchedFac = user.facultad || "";
+        if (!matchedFac && user.carrera) {
+            for (const [fac, carreras] of Object.entries(oferta)) {
+                if (carreras.includes(user.carrera)) {
+                    matchedFac = fac;
+                    break;
+                }
+            }
+        }
+        if (facSelect) {
+            facSelect.value = matchedFac;
+            this.onFacultadChange("edit");
+        }
+        if (carreraSelect && user.carrera) {
+            // Si la carrera actual no figura en las opciones del selector (ej. plan anterior descontinuado, Teología, etc.)
+            // se conserva inyectando la opción existente para no sobreescribir ni bloquear al usuario
+            const existeOpcion = Array.from(carreraSelect.options).some(opt => opt.value === user.carrera);
+            if (!existeOpcion) {
+                const opt = document.createElement("option");
+                opt.value = user.carrera;
+                opt.textContent = `${user.carrera} (Actual)`;
+                carreraSelect.appendChild(opt);
+            }
+            carreraSelect.value = user.carrera;
+        }
 
         this.openModal("edit-profile-modal");
     }
 
     async submitEditProfile() {
         const name = document.getElementById("edit-prof-name")?.value?.trim();
+        const facultad = document.getElementById("edit-prof-facultad")?.value?.trim();
         const carrera = document.getElementById("edit-prof-carrera")?.value?.trim();
         const semestreRaw = document.getElementById("edit-prof-semestre")?.value;
         const semestre = semestreRaw ? parseInt(semestreRaw, 10) : null;
@@ -1698,7 +1946,7 @@ class CampusSwapApp {
         const telefono = document.getElementById("edit-prof-tel")?.value?.trim();
 
         try {
-            const updated = await api.updateProfile({ name, carrera, semestre, universidad, telefono });
+            const updated = await api.updateProfile({ name, facultad, carrera, semestre, universidad, telefono });
             this.showToast("Perfil actualizado correctamente", "success");
             this.closeModal("edit-profile-modal");
             this.updateUserBadge();
@@ -1708,12 +1956,66 @@ class CampusSwapApp {
         }
     }
 
+    esCorreoInstitucional(email) {
+        if (!email || !email.includes("@")) return false;
+        const dom = email.split("@")[1].toLowerCase().trim();
+        const dominios = [
+            "tau.usbmed.edu.co", "usbmed.edu.co", "sanbuenaventura.edu.co", "unal.edu.co", "udea.edu.co",
+            "uniandes.edu.co", "javeriana.edu.co", "univalle.edu.co", "udistrital.edu.co",
+            "uis.edu.co", "uninpahu.edu.co"
+        ];
+        return dom.endsWith(".edu.co") || dominios.some(d => dom === d || dom.endsWith("." + d));
+    }
+
+    onCarnetFileSelected(input) {
+        if (!input?.files?.length) return;
+        const file = input.files[0];
+
+        // Validar formato estricto: JPG o PNG
+        const ext = file.name.split(".").pop().toLowerCase();
+        const validExts = ["jpg", "jpeg", "png"];
+        const validTypes = ["image/jpeg", "image/png"];
+        if (!validExts.includes(ext) && !validTypes.includes(file.type)) {
+            this.showToast("Solo se permiten archivos de imagen en formato JPG o PNG", "warning");
+            this.clearCarnetFile();
+            return;
+        }
+
+        // Validar tamaño máximo: 10 MB
+        const maxBytes = 10 * 1024 * 1024;
+        if (file.size > maxBytes) {
+            this.showToast("El archivo excede el tamaño máximo permitido de 10 MB", "warning");
+            this.clearCarnetFile();
+            return;
+        }
+
+        // Mostrar vista previa estilizada
+        const container = document.getElementById("carnet-preview-container");
+        const img = document.getElementById("carnet-preview-img");
+        const nameEl = document.getElementById("carnet-preview-name");
+        const sizeEl = document.getElementById("carnet-preview-size");
+
+        if (img) img.src = URL.createObjectURL(file);
+        if (nameEl) nameEl.textContent = file.name;
+        if (sizeEl) sizeEl.textContent = `${(file.size / (1024 * 1024)).toFixed(2)} MB`;
+        if (container) container.style.display = "flex";
+    }
+
+    clearCarnetFile() {
+        const fileInput = document.getElementById("carnet-file-input");
+        const container = document.getElementById("carnet-preview-container");
+        const img = document.getElementById("carnet-preview-img");
+        if (fileInput) fileInput.value = "";
+        if (img) img.src = "";
+        if (container) container.style.display = "none";
+    }
+
     async submitUploadCarnet() {
         const fileInput = document.getElementById("carnet-file-input");
         const btn = document.getElementById("btn-upload-carnet");
         const statusEl = document.getElementById("prof-carnet-status");
         if (!fileInput?.files?.length) {
-            this.showToast("Selecciona una imagen de tu carné", "warning");
+            this.showToast("Selecciona una foto de tu carné (JPG o PNG)", "warning");
             return;
         }
         const formData = new FormData();
@@ -1721,9 +2023,16 @@ class CampusSwapApp {
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enviando...'; }
         try {
             const res = await api.uploadCarnet(formData);
-            if (statusEl) statusEl.innerHTML = `<span style="color:var(--success);"><i class="fa-solid fa-check-circle"></i> ${res.msg || 'Carné enviado. Pendiente de revisión.'}</span>`;
-            this.showToast("Carné enviado correctamente. Un moderador lo revisará pronto.", "success");
-            fileInput.value = "";
+            this.showToast("Carné enviado a moderación. Se revisará pronto.", "success");
+            this.clearCarnetFile();
+            // Actualizar usuario en sesión
+            const current = api.getCurrentUser();
+            if (current) {
+                current.carnet_estado = "en_revision";
+                current.carnet_path = "storage/carnets/pendiente";
+                localStorage.setItem(api.storageKeyUser, JSON.stringify(current));
+            }
+            await this.renderProfile();
         } catch (e) {
             this.showToast(e.message || "Error al subir el carné", "error");
             if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger);">${e.message || 'Error al subir el archivo'}</span>`;
@@ -1742,19 +2051,33 @@ class CampusSwapApp {
         const btn = document.getElementById("btn-confirm-code");
         const codigo = codeInput?.value?.trim();
         if (!codigo || codigo.length < 6) {
-            this.showToast("Ingresa el código de 6 dígitos", "warning");
+            this.showToast("Ingresa el código numérico de 6 dígitos", "warning");
             return;
         }
-        if (btn) { btn.disabled = true; btn.textContent = "Validando..."; }
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Validando...'; }
         try {
             const res = await api.confirmarCodigo(user.email, codigo);
-            this.showToast(res.message || "¡Correo institucional verificado!", "success");
+            this.showToast(res.message || "¡Correo institucional verificado! Se ha activado tu distintivo.", "success");
             if (codeInput) codeInput.value = "";
+            const current = api.getCurrentUser();
+            if (current) {
+                current.verificado_comunidad = true;
+                current.verificado = true;
+                current.insignia_estudiante_verificado = true;
+                current.carnet_estado = "verificado";
+                localStorage.setItem(api.storageKeyUser, JSON.stringify(current));
+            }
             await this.renderProfile();
         } catch (e) {
-            this.showToast(e.message || "Código incorrecto o expirado", "error");
+            let msg = e.message || "Código incorrecto o expirado";
+            if (msg.includes("Demasiados intentos") || msg.includes("invalidado")) {
+                msg = "Demasiados intentos erróneos. Este código ha sido invalidado por seguridad. Solicita un código nuevo.";
+            } else if (msg.includes("429") || msg.includes("Demasiadas solicitudes")) {
+                msg = "Límite de solicitudes alcanzado (429). Espera unos minutos antes de solicitar o validar otro código.";
+            }
+            this.showToast(msg, "error");
         } finally {
-            if (btn) { btn.disabled = false; btn.textContent = "Validar Código"; }
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Validar Código'; }
         }
     }
 
@@ -1764,39 +2087,57 @@ class CampusSwapApp {
             this.showToast("Inicia sesión primero", "warning");
             return;
         }
+        if (this._reenvioCooldown > 0) {
+            this.showToast(`Debes esperar ${this._reenvioCooldown}s antes de solicitar otro código`, "info");
+            return;
+        }
+
+        const btn = document.getElementById("btn-reenviar-codigo");
+        const lbl = document.getElementById("lbl-reenviar-codigo");
         try {
             const res = await api.reenviarCodigo(user.email);
             this.showToast(res.message || "Nuevo código enviado a tu correo institucional", "info");
+
+            // Iniciar cuenta regresiva de 60 segundos
+            this._reenvioCooldown = 60;
+            if (btn) btn.disabled = true;
+            if (this._reenvioTimer) clearInterval(this._reenvioTimer);
+            this._reenvioTimer = setInterval(() => {
+                this._reenvioCooldown--;
+                if (lbl) lbl.textContent = `Reenviar (${this._reenvioCooldown}s)`;
+                if (this._reenvioCooldown <= 0) {
+                    clearInterval(this._reenvioTimer);
+                    this._reenvioTimer = null;
+                    if (lbl) lbl.textContent = "Reenviar código";
+                    if (btn) btn.disabled = false;
+                }
+            }, 1000);
         } catch (e) {
             this.showToast(e.message || "Error al reenviar código", "error");
         }
     }
 
-    quickFillUsbmedDomain() {
-        const emailInput = document.getElementById("reg-email");
-        if (!emailInput) return;
-        let val = emailInput.value.trim();
-        if (!val) {
-            emailInput.value = "@usbmed.edu.co";
-            emailInput.focus();
-            emailInput.setSelectionRange(0, 0);
-        } else if (val.includes("@")) {
-            const prefix = val.split("@")[0];
-            emailInput.value = `${prefix}@usbmed.edu.co`;
-        } else {
-            emailInput.value = `${val}@usbmed.edu.co`;
-        }
-        this.onRegisterEmailInput(emailInput.value);
-    }
-
     onRegisterEmailInput(email) {
         if (!email) return;
         const univInput = document.getElementById("reg-univ");
+        if (!univInput) return;
         const lower = email.trim().toLowerCase();
-        if (lower.includes("@usbmed.edu.co") || lower.includes("@sanbuenaventura.edu.co") || lower.endsWith("usbmed.edu.co")) {
-            if (univInput) {
-                univInput.value = "Universidad de San Buenaventura Medellín";
-            }
+        if (lower.includes("@tau.usbmed.edu.co") || lower.includes("@usbmed.edu.co") || lower.includes("@sanbuenaventura.edu.co") || lower.endsWith("usbmed.edu.co")) {
+            univInput.value = "Universidad de San Buenaventura Medellín (USBMED)";
+        } else if (lower.includes("@unal.edu.co")) {
+            univInput.value = "Universidad Nacional de Colombia";
+        } else if (lower.includes("@udea.edu.co")) {
+            univInput.value = "Universidad de Antioquia (UdeA)";
+        } else if (lower.includes("@eafit.edu.co")) {
+            univInput.value = "Universidad EAFIT";
+        } else if (lower.includes("@upb.edu.co")) {
+            univInput.value = "Universidad Pontificia Bolivariana (UPB)";
+        } else if (lower.includes("@udem.edu.co")) {
+            univInput.value = "Universidad de Medellín (UDEM)";
+        } else if (lower.includes("@elpoli.edu.co")) {
+            univInput.value = "Politécnico Colombiano Jaime Isaza Cadavid";
+        } else if (lower.includes("@itm.edu.co")) {
+            univInput.value = "Instituto Tecnológico Metropolitano (ITM)";
         }
     }
 
@@ -1893,6 +2234,9 @@ class CampusSwapApp {
                                 <input id="verification-note-${verification.verificacion_id}" class="form-control" style="flex:1;min-width:180px;" value="Portada, código e ISBN revisados">
                                 <button class="btn btn-success btn-sm" onclick="app.reviewBookVerification(${verification.verificacion_id}, 'aprobada')">Aprobar</button>
                                 <button class="btn btn-danger btn-sm" onclick="app.reviewBookVerification(${verification.verificacion_id}, 'rechazada')">Rechazar</button>
+                                <button class="btn btn-primary btn-sm" onclick="app.openTicketForVerification(${verification.verificacion_id}, ${verification.publicacion_id}, '${this.escapeHtml(verification.titulo)}')" style="display:inline-flex;align-items:center;gap:0.35rem;">
+                                    <i class="fa-solid fa-headset"></i> Contactar (Ticket)
+                                </button>
                             </div>
                         </article>
                     `).join("")
@@ -1901,6 +2245,8 @@ class CampusSwapApp {
         } catch (e) {
             this.showToast(e.message || "No se pudo cargar la cola de verificación", "error");
         }
+
+        await this.loadAdminTickets();
     }
 
     async loadAuditStats() {
@@ -2172,7 +2518,8 @@ class CampusSwapApp {
         this.openModal("login-modal");
     }
 
-    openRegisterModal() {
+    async openRegisterModal() {
+        await this.loadProgramasAcademicos(true);
         this.closeModal("login-modal");
         this.closeModal("auth-modal");
         this.openModal("register-modal");
@@ -2183,7 +2530,8 @@ class CampusSwapApp {
         this.openModal("login-modal");
     }
 
-    switchToRegister() {
+    async switchToRegister() {
+        await this.loadProgramasAcademicos(true);
         this.closeModal("login-modal");
         this.openModal("register-modal");
     }
@@ -2233,6 +2581,7 @@ class CampusSwapApp {
         const email = document.getElementById("reg-email")?.value?.trim();
         const pass = document.getElementById("reg-password")?.value;
         const telefono = document.getElementById("reg-tel")?.value?.trim();
+        const facultad = document.getElementById("reg-facultad")?.value?.trim();
         const carrera = document.getElementById("reg-carrera")?.value?.trim();
         const semestreRaw = document.getElementById("reg-semestre")?.value;
         const semestre = semestreRaw ? parseInt(semestreRaw, 10) : null;
@@ -2252,12 +2601,12 @@ class CampusSwapApp {
         }
 
         try {
-            const result = await api.register({ name, email, password: pass, telefono, carrera, semestre, universidad });
+            const result = await api.register({ name, email, password: pass, telefono, facultad, carrera, semestre, universidad });
             this.updateUserBadge();
             this.showToast(`¡Cuenta creada con éxito! Bienvenido, ${result.user?.name || name}`, "success");
             this.closeModal("register-modal");
             this.closeModal("auth-modal");
-            ["reg-name", "reg-email", "reg-password", "reg-tel", "reg-carrera", "reg-univ"].forEach(id => {
+            ["reg-name", "reg-email", "reg-password", "reg-tel", "reg-facultad", "reg-carrera", "reg-univ"].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.value = "";
             });
@@ -2274,7 +2623,7 @@ class CampusSwapApp {
         await api.logout();
         this.updateUserBadge();
         this.showToast("Has cerrado sesión", "info");
-        this.renderCurrentView();
+        this.navigateTo("catalog");
     }
 
     openPublishBookModal() {
@@ -2386,12 +2735,441 @@ class CampusSwapApp {
             <span>${message}</span>
         `;
 
+        const isLongAlert = message.includes("suspendida") || message.includes("bloqueada") || message.includes("Límite") || message.includes("429") || message.includes("invalidado");
+        const duration = isLongAlert ? 7000 : 3500;
         container.appendChild(toast);
         setTimeout(() => {
             toast.style.opacity = "0";
             toast.style.transform = "translateX(100%)";
             toast.style.transition = "all 0.3s ease";
             setTimeout(() => toast.remove(), 300);
-        }, 3500);
+        }, duration);
     }
+
+    // =========================================================================
+    // SISTEMA DE TICKETS DE REVISIÓN Y COMUNICACIÓN CON ESTUDIANTES
+    // =========================================================================
+
+    _formatTicketStatusBadge(estado) {
+        switch (estado) {
+            case "abierto":
+                return `<span class="status-badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3);"><i class="fa-solid fa-folder-open"></i> Abierto</span>`;
+            case "esperando_estudiante":
+                return `<span class="status-badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);"><i class="fa-solid fa-hourglass-half"></i> Esperando al Estudiante</span>`;
+            case "en_revision":
+                return `<span class="status-badge" style="background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3);"><i class="fa-solid fa-magnifying-glass"></i> En Revisión</span>`;
+            case "resuelto":
+                return `<span class="status-badge" style="background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3);"><i class="fa-solid fa-check"></i> Resuelto</span>`;
+            case "cerrado":
+                return `<span class="status-badge" style="background: rgba(100, 116, 139, 0.15); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.3);"><i class="fa-solid fa-lock"></i> Cerrado</span>`;
+            default:
+                return `<span class="status-badge">${this.escapeHtml(estado)}</span>`;
+        }
+    }
+
+    _formatTicketPriorityBadge(prioridad) {
+        switch (prioridad) {
+            case "alta":
+                return `<span style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); font-size: 0.72rem; padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 600;">Alta</span>`;
+            case "baja":
+                return `<span style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); font-size: 0.72rem; padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 600;">Baja</span>`;
+            default:
+                return `<span style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 0.72rem; padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 600;">Media</span>`;
+        }
+    }
+
+    async loadAdminTickets() {
+        const listEl = document.getElementById("admin-tickets-list");
+        if (!listEl) return;
+
+        const statusFilter = document.getElementById("admin-tickets-filter-status")?.value || "";
+        try {
+            const tickets = await api.getTickets({ estado: statusFilter || undefined });
+            if (!tickets || tickets.length === 0) {
+                listEl.innerHTML = `<p style="color: var(--text-muted); font-size: 0.85rem; padding: 0.75rem 0;">No hay tickets de revisión registrados con este criterio.</p>`;
+                return;
+            }
+
+            listEl.innerHTML = tickets.map(t => `
+                <div style="background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.85rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                    <div style="flex: 1; min-width: 250px;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                            <strong>${this.escapeHtml(t.asunto)}</strong>
+                            ${this._formatTicketStatusBadge(t.estado)}
+                            ${this._formatTicketPriorityBadge(t.prioridad)}
+                        </div>
+                        <div style="font-size: 0.82rem; color: var(--text-secondary);">
+                            <span><i class="fa-solid fa-book" style="color: var(--primary); font-size: 0.75rem;"></i> Libro: <strong>${this.escapeHtml(t.publicacion_titulo || `Publicación #${t.publicacion_id}`)}</strong></span> ·
+                            <span><i class="fa-solid fa-user" style="font-size: 0.75rem;"></i> Estudiante: ${this.escapeHtml(t.usuario_nombre || `Usuario #${t.usuario_id}`)}</span>
+                        </div>
+                        ${t.ultimo_mensaje ? `
+                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 480px;">
+                            <i class="fa-regular fa-comment-dots"></i> «${this.escapeHtml(t.ultimo_mensaje)}»
+                        </div>
+                        ` : ''}
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">${new Date(t.actualizado_en).toLocaleDateString()}</span>
+                        <button class="btn btn-secondary btn-sm" onclick="app.openTicketModal(${t.id})" style="display: flex; align-items: center; gap: 0.35rem;">
+                            <i class="fa-solid fa-comments"></i> Conversar (${t.mensajes_count || 1})
+                        </button>
+                    </div>
+                </div>
+            `).join("");
+        } catch (e) {
+            listEl.innerHTML = `<p style="color: var(--danger); font-size: 0.85rem;">Error al cargar tickets: ${this.escapeHtml(e.message)}</p>`;
+        }
+    }
+
+    async loadStudentTickets() {
+        const listEl = document.getElementById("student-tickets-list");
+        if (!listEl) return;
+
+        try {
+            const tickets = await api.getMyTickets();
+            if (!tickets || tickets.length === 0) {
+                listEl.innerHTML = `<p style="color: var(--text-muted); font-size: 0.82rem;">No tienes observaciones o tickets de revisión pendientes para tus libros.</p>`;
+                return;
+            }
+
+            listEl.innerHTML = tickets.map(t => {
+                const needsReply = t.estado === "esperando_estudiante";
+                return `
+                <div style="background: var(--bg-surface); border: 1px solid ${needsReply ? 'rgba(245, 158, 11, 0.4)' : 'var(--border-color)'}; border-radius: var(--radius-sm); padding: 0.75rem; margin-bottom: 0.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <div>
+                            <div style="font-weight: 600; font-size: 0.88rem; display: flex; align-items: center; gap: 0.4rem;">
+                                ${needsReply ? '<i class="fa-solid fa-circle-exclamation" style="color: #f59e0b;"></i>' : ''}
+                                ${this.escapeHtml(t.asunto)}
+                            </div>
+                            <div style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.15rem;">
+                                Libro: <strong>${this.escapeHtml(t.publicacion_titulo || `Publicación #${t.publicacion_id}`)}</strong>
+                            </div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            ${this._formatTicketStatusBadge(t.estado)}
+                            <button class="btn ${needsReply ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="app.openTicketModal(${t.id})" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">
+                                <i class="fa-solid fa-reply"></i> Responder
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                `;
+            }).join("");
+        } catch (e) {
+            listEl.innerHTML = `<p style="color: var(--text-muted); font-size: 0.82rem;">No se pudieron cargar los tickets de revisión.</p>`;
+        }
+    }
+
+    async openTicketForVerification(verificationId, publicationId, bookTitle) {
+        try {
+            const existing = await api.getPublicationTickets(publicationId);
+            const openTicket = existing && existing.find(t => t.estado !== "cerrado" && t.estado !== "resuelto");
+
+            if (openTicket) {
+                await this.openTicketModal(openTicket.id);
+            } else {
+                this.openCreateTicketModal(publicationId, bookTitle);
+            }
+        } catch (e) {
+            this.showToast(e.message || "Error al consultar ticket de la publicación", "error");
+        }
+    }
+
+    openCreateTicketModal(publicationId, bookTitle) {
+        document.getElementById("create-ticket-pub-id").value = publicationId;
+        document.getElementById("create-ticket-pub-title").textContent = bookTitle || `Publicación #${publicationId}`;
+        document.getElementById("create-ticket-subject").value = `Aclaración sobre revisión de: ${bookTitle}`;
+        document.getElementById("create-ticket-initial-msg").value = "";
+        this.openModal("create-ticket-modal");
+    }
+
+    async submitCreateTicket() {
+        const publicationId = parseInt(document.getElementById("create-ticket-pub-id").value, 10);
+        const asunto = document.getElementById("create-ticket-subject").value.trim();
+        const prioridad = document.getElementById("create-ticket-priority").value;
+        const mensajeInicial = document.getElementById("create-ticket-initial-msg").value.trim();
+
+        if (!asunto || !mensajeInicial) {
+            this.showToast("Por favor completa el asunto y el mensaje", "warning");
+            return;
+        }
+
+        try {
+            const ticket = await api.createTicket({
+                publicacion_id: publicationId,
+                asunto,
+                prioridad,
+                mensaje_inicial: mensajeInicial
+            });
+            this.closeModal("create-ticket-modal");
+            this.showToast("Ticket de revisión abierto exitosamente", "success");
+            await this.openTicketModal(ticket.id);
+            await this.loadAdminTickets();
+        } catch (e) {
+            this.showToast(e.message || "No se pudo crear el ticket", "error");
+        }
+    }
+
+    async openTicketModal(ticketId) {
+        this.activeTicketId = ticketId;
+        try {
+            const ticket = await api.getTicketDetail(ticketId);
+            this.activeTicket = ticket;
+
+            document.getElementById("ticket-modal-subject").textContent = ticket.asunto;
+            const statusBadge = document.getElementById("ticket-modal-status-badge");
+            if (statusBadge) statusBadge.outerHTML = this._formatTicketStatusBadge(ticket.estado);
+            const priorityBadge = document.getElementById("ticket-modal-priority-badge");
+            if (priorityBadge) priorityBadge.outerHTML = this._formatTicketPriorityBadge(ticket.prioridad);
+
+            const bookInfo = document.getElementById("ticket-modal-book-info");
+            if (bookInfo) {
+                bookInfo.innerHTML = `
+                    <span><i class="fa-solid fa-book"></i> Libro: <strong>${this.escapeHtml(ticket.publicacion_titulo || `Publicación #${ticket.publicacion_id}`)}</strong></span> ·
+                    <span><i class="fa-solid fa-user"></i> Estudiante: <strong>${this.escapeHtml(ticket.usuario_nombre || `Usuario #${ticket.usuario_id}`)}</strong></span>
+                    ${ticket.moderador_nombre ? ` · <span><i class="fa-solid fa-shield-halved"></i> Moderador: <strong>${this.escapeHtml(ticket.moderador_nombre)}</strong></span>` : ''}
+                `;
+            }
+
+            const statusSelect = document.getElementById("ticket-change-status-select");
+            if (statusSelect) statusSelect.value = ticket.estado;
+
+            const updatedEl = document.getElementById("ticket-last-updated");
+            if (updatedEl) updatedEl.textContent = `Actualizado: ${new Date(ticket.actualizado_en).toLocaleString()}`;
+
+            this._renderTicketMessages(ticket.mensajes || []);
+
+            const replyInput = document.getElementById("ticket-reply-input");
+            if (replyInput) replyInput.value = "";
+
+            this.openModal("ticket-modal");
+        } catch (e) {
+            this.showToast(e.message || "No se pudo cargar el ticket", "error");
+        }
+    }
+
+    _renderTicketMessages(mensajes) {
+        const container = document.getElementById("ticket-messages-container");
+        if (!container) return;
+
+        const currentUser = api.getCurrentUser();
+        const currentUserId = currentUser ? parseInt(currentUser.id, 10) : 0;
+
+        if (!mensajes || mensajes.length === 0) {
+            container.innerHTML = `<p style="color: var(--text-muted); text-align: center; margin: auto;">No hay mensajes registrados en este ticket.</p>`;
+            return;
+        }
+
+        container.innerHTML = mensajes.map(m => {
+            if (m.es_del_sistema) {
+                return `
+                    <div style="text-align: center; margin: 0.5rem 0;">
+                        <span style="background: rgba(255, 255, 255, 0.05); color: var(--text-muted); font-size: 0.75rem; padding: 0.25rem 0.65rem; border-radius: var(--radius-full); border: 1px dashed var(--border-color);">
+                            <i class="fa-solid fa-info-circle"></i> ${this.escapeHtml(m.contenido)} · ${new Date(m.creado_en).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                    </div>
+                `;
+            }
+
+            const isMe = m.remitente_id === currentUserId;
+            const isModerator = m.remitente_rol === "moderador" || m.remitente_rol === "admin" || m.remitente_rol === "administrador";
+
+            return `
+                <div style="display: flex; flex-direction: column; align-items: ${isMe ? 'flex-end' : 'flex-start'}; margin-bottom: 0.5rem;">
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.2rem; display: flex; align-items: center; gap: 0.35rem;">
+                        <strong>${this.escapeHtml(m.remitente_nombre || `Usuario #${m.remitente_id}`)}</strong>
+                        ${isModerator ? '<span style="background: rgba(168, 85, 247, 0.2); color: #c084fc; font-size: 0.68rem; padding: 0.1rem 0.35rem; border-radius: 3px; font-weight: 600;"><i class="fa-solid fa-shield"></i> Moderación</span>' : ''}
+                        <span>· ${new Date(m.creado_en).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                    <div style="max-width: 82%; padding: 0.75rem 1rem; border-radius: var(--radius-md); font-size: 0.88rem; line-height: 1.45; word-break: break-word; background: ${isMe ? 'var(--primary)' : 'var(--bg-surface-elevated)'}; color: ${isMe ? '#ffffff' : 'var(--text-primary)'}; border: 1px solid ${isMe ? 'transparent' : 'var(--border-color)'};">
+                        ${this.escapeHtml(m.contenido).replace(/\n/g, '<br>')}
+                    </div>
+                </div>
+            `;
+        }).join("");
+
+        container.scrollTop = container.scrollHeight;
+    }
+
+    async submitTicketMessage() {
+        if (!this.activeTicketId) return;
+
+        const input = document.getElementById("ticket-reply-input");
+        const contenido = input?.value?.trim();
+        if (!contenido) return;
+
+        try {
+            input.value = "";
+            const nuevoMensaje = await api.sendTicketMessage(this.activeTicketId, contenido);
+            
+            if (this.activeTicket && this.activeTicket.mensajes) {
+                this.activeTicket.mensajes.push(nuevoMensaje);
+                this._renderTicketMessages(this.activeTicket.mensajes);
+            } else {
+                await this.openTicketModal(this.activeTicketId);
+            }
+
+            await this.loadAdminTickets();
+            await this.loadStudentTickets();
+            this.showToast("Respuesta enviada", "success");
+        } catch (e) {
+            this.showToast(e.message || "Error al enviar mensaje en el ticket", "error");
+        }
+    }
+
+    async onTicketStatusSelectChange() {
+        if (!this.activeTicketId) return;
+        const selectEl = document.getElementById("ticket-change-status-select");
+        const nuevoEstado = selectEl?.value;
+        if (!nuevoEstado) return;
+
+        try {
+            const updated = await api.updateTicketStatus(this.activeTicketId, nuevoEstado);
+            this.activeTicket = updated;
+            const statusBadge = document.getElementById("ticket-modal-status-badge");
+            if (statusBadge) statusBadge.outerHTML = this._formatTicketStatusBadge(updated.estado);
+            this._renderTicketMessages(updated.mensajes || []);
+            await this.loadAdminTickets();
+            await this.loadStudentTickets();
+            this.showToast(`Estado del ticket cambiado a: ${nuevoEstado}`, "info");
+        } catch (e) {
+            this.showToast(e.message || "No se pudo actualizar el estado del ticket", "error");
+        }
+    }
+
+
+    // =========================================================================
+    // VISTA PRINCIPAL DE TICKETS DE REVISIÓN
+    // =========================================================================
+    async filterTicketsByStatus(status) {
+        this.activeTicketFilter = status;
+        
+        // Actualizar botones de filtro
+        const btnMap = {
+            '': 'ticket-filter-btn-all',
+            'esperando_estudiante': 'ticket-filter-btn-esperando',
+            'en_revision': 'ticket-filter-btn-revision',
+            'abierto': 'ticket-filter-btn-abierto',
+            'resuelto': 'ticket-filter-btn-resuelto'
+        };
+        Object.entries(btnMap).forEach(([s, id]) => {
+            const btn = document.getElementById(id);
+            if (btn) {
+                if (s === status) {
+                    btn.classList.add("active");
+                    btn.style.background = "var(--primary)";
+                    btn.style.color = "#ffffff";
+                } else {
+                    btn.classList.remove("active");
+                    btn.style.background = "transparent";
+                    btn.style.color = "var(--text-secondary)";
+                }
+            }
+        });
+
+        await this.renderTicketsView();
+    }
+
+    async renderTicketsView() {
+        const container = document.getElementById("tickets-view-container");
+        if (!container) return;
+
+        const user = api.getCurrentUser();
+        if (!user) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 3rem 1rem; background: var(--bg-surface-elevated); border-radius: var(--radius-lg); border: 1px solid var(--border-color);">
+                    <i class="fa-solid fa-user-lock" style="font-size: 2.5rem; color: var(--primary); margin-bottom: 0.75rem;"></i>
+                    <h3>Inicia sesión para ver tus tickets de revisión</h3>
+                    <p style="color: var(--text-secondary); max-width: 400px; margin: 0.5rem auto 1.25rem;">
+                        Los tickets te permiten conversar con los moderadores sobre el estado de tus libros en revisión.
+                    </p>
+                    <button class="btn btn-primary" onclick="app.openAuthModal('login')">
+                        <i class="fa-solid fa-arrow-right-to-bracket"></i> Iniciar Sesión
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = `<div style="text-align: center; padding: 2rem; color: var(--text-muted);"><i class="fa-solid fa-spinner fa-spin" style="font-size: 1.5rem;"></i><p style="margin-top: 0.5rem;">Cargando tickets de revisión...</p></div>`;
+
+        try {
+            const isMod = user.role === "moderador" || user.role === "admin" || user.role === "administrador";
+            let tickets = [];
+            
+            if (isMod) {
+                tickets = await api.getTickets({ estado: this.activeTicketFilter || undefined });
+            } else {
+                tickets = await api.getMyTickets({ estado: this.activeTicketFilter || undefined });
+            }
+
+            if (!tickets || tickets.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 3.5rem 1rem; background: var(--bg-surface-elevated); border-radius: var(--radius-lg); border: 1px dashed var(--border-color);">
+                        <i class="fa-regular fa-comments" style="font-size: 3rem; color: var(--text-muted); margin-bottom: 0.75rem;"></i>
+                        <h3 style="color: var(--text-primary); margin-bottom: 0.35rem;">No hay tickets registrados</h3>
+                        <p style="color: var(--text-secondary); font-size: 0.9rem; max-width: 480px; margin: 0 auto;">
+                            ${this.activeTicketFilter ? 'No hay tickets con el estado seleccionado.' : 'Cuando un libro entre en revisión o el moderador requiera aclaraciones sobre una foto o dato, aparecerá aquí para coordinar.'}
+                        </p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Actualizar badge en navbar si hay tickets esperando_estudiante
+            const waitingCount = tickets.filter(t => t.estado === "esperando_estudiante").length;
+            const navBadge = document.getElementById("tickets-nav-badge");
+            if (navBadge) {
+                if (waitingCount > 0) {
+                    navBadge.style.display = "inline-block";
+                    navBadge.textContent = waitingCount;
+                } else {
+                    navBadge.style.display = "none";
+                }
+            }
+
+            container.innerHTML = tickets.map(t => {
+                const needsAction = t.estado === "esperando_estudiante" && !isMod;
+                return `
+                <div style="background: var(--bg-surface-elevated); border: 1px solid ${needsAction ? 'rgba(245, 158, 11, 0.45)' : 'var(--border-color)'}; border-radius: var(--radius-md); padding: 1.25rem; transition: transform 0.2s ease, box-shadow 0.2s ease; box-shadow: ${needsAction ? '0 4px 14px rgba(245, 158, 11, 0.12)' : 'none'};">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem;">
+                        <div style="flex: 1; min-width: 280px;">
+                            <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.4rem;">
+                                ${needsAction ? '<span style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem;"><i class="fa-solid fa-triangle-exclamation"></i> Requiere tu respuesta</span>' : ''}
+                                <strong style="font-size: 1.05rem; color: var(--text-primary);">${this.escapeHtml(t.asunto)}</strong>
+                                ${this._formatTicketStatusBadge(t.estado)}
+                                ${this._formatTicketPriorityBadge(t.prioridad)}
+                            </div>
+                            
+                            <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.5rem; display: flex; flex-wrap: wrap; gap: 1rem;">
+                                <span><i class="fa-solid fa-book" style="color: var(--primary);"></i> Libro: <strong>${this.escapeHtml(t.publicacion_titulo || `Publicación #${t.publicacion_id}`)}</strong></span>
+                                <span><i class="fa-solid fa-user"></i> Estudiante: ${this.escapeHtml(t.usuario_nombre || `Usuario #${t.usuario_id}`)}</span>
+                                ${t.moderador_nombre ? `<span><i class="fa-solid fa-shield-halved" style="color: #a855f7;"></i> Moderador: ${this.escapeHtml(t.moderador_nombre)}</span>` : ''}
+                            </div>
+
+                            ${t.ultimo_mensaje ? `
+                            <div style="background: var(--bg-surface); border-left: 3px solid var(--primary); padding: 0.6rem 0.85rem; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: 0.83rem; color: var(--text-secondary); margin-top: 0.5rem; font-style: italic;">
+                                «${this.escapeHtml(t.ultimo_mensaje)}»
+                            </div>
+                            ` : ''}
+                        </div>
+
+                        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.6rem;">
+                            <span style="font-size: 0.78rem; color: var(--text-muted);">
+                                Actualizado: ${new Date(t.actualizado_en).toLocaleDateString()} ${new Date(t.actualizado_en).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            <button class="btn ${needsAction ? 'btn-primary' : 'btn-secondary'}" onclick="app.openTicketModal(${t.id})" style="display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 1rem;">
+                                <i class="fa-solid fa-comments"></i> Abrir Conversación (${t.mensajes_count || 1})
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                `;
+            }).join("");
+        } catch (e) {
+            container.innerHTML = `<p style="color: var(--danger); text-align: center; padding: 2rem;">Error al cargar tickets: ${this.escapeHtml(e.message)}</p>`;
+        }
+    }
+
 }

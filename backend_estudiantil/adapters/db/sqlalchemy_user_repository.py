@@ -1,9 +1,10 @@
-from typing import List, Optional
+
 from sqlalchemy.future import select
 
 from backend_estudiantil.adapters.db import UserORM, get_session_factory
 from backend_estudiantil.domain.models.user import User
 from backend_estudiantil.ports.repositories.user_repository import UserRepository
+
 
 class SQLAlchemyUserRepository(UserRepository):
     """Implementación en SQLAlchemy del repositorio de usuarios sobre la tabla 'usuarios'."""
@@ -33,12 +34,20 @@ class SQLAlchemyUserRepository(UserRepository):
             semestre=getattr(orm, "semestre", None),
             foto_url=getattr(orm, "foto_url", None),
             carnet_path=getattr(orm, "carnet_path", None),
+            carnet_estado=getattr(orm, "carnet_estado", None),
+            carnet_rechazo_motivo=getattr(orm, "carnet_rechazo_motivo", None),
             perfil_completo=getattr(orm, "perfil_completo", False),
             codigo_confirmacion=getattr(orm, "codigo_confirmacion", None),
             codigo_confirmacion_expira=getattr(orm, "codigo_confirmacion_expira", None),
+            codigo_confirmacion_intentos=getattr(orm, "codigo_confirmacion_intentos", 0) or 0,
+            correo_confirmado=getattr(orm, "correo_confirmado", False) or False,
+            facultad=getattr(orm, "facultad", None),
+            organizacion_id=getattr(orm, "organizacion_id", None),
+            fin_suspension=getattr(orm, "fin_suspension", None),
+            motivo_sancion=getattr(orm, "motivo_sancion", None),
         )
 
-    async def get_by_id(self, user_id) -> Optional[User]:
+    async def get_by_id(self, user_id) -> User | None:
         async with self.session_factory() as session:
             try:
                 uid = int(user_id)
@@ -48,7 +57,22 @@ class SQLAlchemyUserRepository(UserRepository):
             orm = result.scalar_one_or_none()
             return await self._to_entity(orm) if orm else None
 
-    async def get_by_email(self, email: str) -> Optional[User]:
+    async def get_by_ids(self, user_ids: list[int]) -> dict[int, User]:
+        """Carga en lote múltiples usuarios por sus IDs numéricos."""
+        if not user_ids:
+            return {}
+        uids = [int(u) for u in user_ids if u is not None]
+        if not uids:
+            return {}
+        async with self.session_factory() as session:
+            result = await session.execute(select(UserORM).where(UserORM.id.in_(uids)))
+            users = {}
+            for orm in result.scalars().all():
+                ent = await self._to_entity(orm)
+                users[ent.id] = ent
+            return users
+
+    async def get_by_email(self, email: str) -> User | None:
         async with self.session_factory() as session:
             result = await session.execute(select(UserORM).where(UserORM.correo_institucional == email))
             orm = result.scalar_one_or_none()
@@ -63,6 +87,7 @@ class SQLAlchemyUserRepository(UserRepository):
                 password_hash=user.password_hash,
                 tipo_usuario=user.tipo_usuario or "estudiante",
                 programa_area=user.programa_area,
+                facultad=user.facultad,
                 rol=user.rol or "usuario",
                 verificado_comunidad=user.verificado_comunidad,
                 estado_cuenta=user.estado_cuenta or "activo",
@@ -71,9 +96,16 @@ class SQLAlchemyUserRepository(UserRepository):
                 semestre=user.semestre,
                 foto_url=user.foto_url,
                 carnet_path=user.carnet_path,
+                carnet_estado=user.carnet_estado,
+                carnet_rechazo_motivo=user.carnet_rechazo_motivo,
                 perfil_completo=user.perfil_completo,
                 codigo_confirmacion=user.codigo_confirmacion,
                 codigo_confirmacion_expira=user.codigo_confirmacion_expira,
+                codigo_confirmacion_intentos=user.codigo_confirmacion_intentos,
+                correo_confirmado=user.correo_confirmado,
+                organizacion_id=user.organizacion_id,
+                fin_suspension=user.fin_suspension,
+                motivo_sancion=user.motivo_sancion,
             )
             session.add(orm)
             await session.commit()
@@ -94,15 +126,23 @@ class SQLAlchemyUserRepository(UserRepository):
             orm.rol = user.rol
             orm.estado_cuenta = user.estado_cuenta
             orm.programa_area = user.programa_area
+            orm.facultad = user.facultad
             orm.verificado_comunidad = user.verificado_comunidad
             orm.telefono = user.telefono
             orm.universidad = user.universidad
             orm.semestre = user.semestre
             orm.foto_url = user.foto_url
             orm.carnet_path = user.carnet_path
+            orm.carnet_estado = user.carnet_estado
+            orm.carnet_rechazo_motivo = user.carnet_rechazo_motivo
             orm.perfil_completo = user.perfil_completo
             orm.codigo_confirmacion = user.codigo_confirmacion
             orm.codigo_confirmacion_expira = user.codigo_confirmacion_expira
+            orm.codigo_confirmacion_intentos = user.codigo_confirmacion_intentos
+            orm.correo_confirmado = user.correo_confirmado
+            orm.organizacion_id = user.organizacion_id
+            orm.fin_suspension = user.fin_suspension
+            orm.motivo_sancion = user.motivo_sancion
             await session.commit()
             await session.refresh(orm)
             return await self._to_entity(orm)
@@ -119,7 +159,7 @@ class SQLAlchemyUserRepository(UserRepository):
                 await session.delete(orm)
                 await session.commit()
 
-    async def list(self, skip: int = 0, limit: int = 100) -> List[User]:
+    async def list(self, skip: int = 0, limit: int = 100) -> list[User]:
         async with self.session_factory() as session:
             result = await session.execute(select(UserORM).order_by(UserORM.id.desc()).offset(skip).limit(limit))
             orms = result.scalars().all()

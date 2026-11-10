@@ -1,0 +1,8 @@
+# Configuración estándar de Ruff para backend_estudiantil
+line-length = 120
+indent-width = 4
+exclude = [".venv", "alembic"]
+
+[lint]
+select = ["E", "F"]
+ignore = ["E501"]

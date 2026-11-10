@@ -1,10 +1,12 @@
-from typing import List, Optional
+
 # pyrefly: ignore [missing-import]
 from sqlalchemy.future import select
 
 from backend_estudiantil.adapters.db import CalificacionORM, get_session_factory
 from backend_estudiantil.domain.models.calificacion import Calificacion
-from backend_estudiantil.ports.repositories.calificacion_repository import CalificacionRepository
+from backend_estudiantil.ports.repositories.calificacion_repository import (
+    CalificacionRepository,
+)
 
 
 class SQLAlchemyCalificacionRepository(CalificacionRepository):
@@ -28,7 +30,7 @@ class SQLAlchemyCalificacionRepository(CalificacionRepository):
             fecha_calificacion=orm.fecha_calificacion,
         )
 
-    async def get_by_id(self, calificacion_id: int) -> Optional[Calificacion]:
+    async def get_by_id(self, calificacion_id: int) -> Calificacion | None:
         async with self.session_factory() as session:
             result = await session.execute(
                 select(CalificacionORM).where(CalificacionORM.id == calificacion_id)
@@ -36,7 +38,7 @@ class SQLAlchemyCalificacionRepository(CalificacionRepository):
             orm = result.scalar_one_or_none()
             return self._to_entity(orm) if orm else None
 
-    async def list_by_usuario_calificado(self, usuario_id: int) -> List[Calificacion]:
+    async def list_by_usuario_calificado(self, usuario_id: int) -> list[Calificacion]:
         """Retorna todas las calificaciones recibidas por un usuario."""
         async with self.session_factory() as session:
             result = await session.execute(
@@ -47,7 +49,7 @@ class SQLAlchemyCalificacionRepository(CalificacionRepository):
 
     async def get_by_trueque_and_calificador(
         self, trueque_id: int, calificador_id: int
-    ) -> Optional[Calificacion]:
+    ) -> Calificacion | None:
         """Verifica si un usuario ya calificó en un trueque (una calificación por participante)."""
         async with self.session_factory() as session:
             result = await session.execute(
@@ -72,3 +74,16 @@ class SQLAlchemyCalificacionRepository(CalificacionRepository):
             await session.commit()
             await session.refresh(orm)
             return self._to_entity(orm)
+
+    async def get_global_rating_stats(self) -> tuple[float, int]:
+        """Calcula la media global (m) y el total de calificaciones registradas en la plataforma."""
+        from sqlalchemy import func
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(func.avg(CalificacionORM.estrellas), func.count(CalificacionORM.id))
+            )
+            avg, count = result.one()
+            media = float(avg) if avg is not None else 5.0
+            total = int(count) if count is not None else 0
+            return (media, total)
+

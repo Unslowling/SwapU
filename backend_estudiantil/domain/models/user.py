@@ -1,40 +1,48 @@
 from datetime import datetime, timezone
-from typing import Optional
+
 
 class User:
     """Entidad de dominio que representa a un usuario / estudiante en la plataforma de trueque."""
 
     def __init__(
         self,
-        id: Optional[int] = None,
+        id: int | None = None,
         nombre: str = "",
-        apellido: Optional[str] = None,
+        apellido: str | None = None,
         correo_institucional: str = "",
         password_hash: str = "",
         tipo_usuario: str = "estudiante",
-        programa_area: Optional[str] = None,
+        programa_area: str | None = None,
         rol: str = "usuario",
         verificado_comunidad: bool = False,
         estado_cuenta: str = "activo",
-        fecha_registro: Optional[datetime] = None,
+        fecha_registro: datetime | None = None,
         # Campos de perfil de usuario
-        telefono: Optional[str] = None,
-        universidad: Optional[str] = None,
-        semestre: Optional[int] = None,
-        foto_url: Optional[str] = None,
-        carnet_path: Optional[str] = None,
+        telefono: str | None = None,
+        universidad: str | None = None,
+        semestre: int | None = None,
+        foto_url: str | None = None,
+        carnet_path: str | None = None,
+        carnet_estado: str | None = None,
+        carnet_rechazo_motivo: str | None = None,
         perfil_completo: bool = False,
-        codigo_confirmacion: Optional[str] = None,
-        codigo_confirmacion_expira: Optional[datetime] = None,
+        codigo_confirmacion: str | None = None,
+        codigo_confirmacion_expira: datetime | None = None,
+        codigo_confirmacion_intentos: int = 0,
+        correo_confirmado: bool = False,
+        facultad: str | None = None,
+        organizacion_id: int | None = None,
+        fin_suspension: datetime | None = None,
+        motivo_sancion: str | None = None,
         # Argumentos compatibles con llamadas anteriores
-        email: Optional[str] = None,
-        hashed_password: Optional[str] = None,
-        name: Optional[str] = None,
-        role: Optional[str] = None,
-        is_active: Optional[bool] = None,
-        carrera: Optional[str] = None,
-        created_at: Optional[datetime] = None,
-        updated_at: Optional[datetime] = None,
+        email: str | None = None,
+        hashed_password: str | None = None,
+        name: str | None = None,
+        role: str | None = None,
+        is_active: bool | None = None,
+        carrera: str | None = None,
+        created_at: datetime | None = None,
+        updated_at: datetime | None = None,
     ) -> None:
         self.id = id
         self.correo_institucional = correo_institucional or email or ""
@@ -60,9 +68,17 @@ class User:
         self.semestre = semestre
         self.foto_url = foto_url
         self.carnet_path = carnet_path
+        self.carnet_estado = carnet_estado
+        self.carnet_rechazo_motivo = carnet_rechazo_motivo
         self.perfil_completo = perfil_completo
         self.codigo_confirmacion = codigo_confirmacion
         self.codigo_confirmacion_expira = codigo_confirmacion_expira
+        self.codigo_confirmacion_intentos = codigo_confirmacion_intentos
+        self.correo_confirmado = correo_confirmado
+        self.facultad = facultad
+        self.organizacion_id = organizacion_id
+        self.fin_suspension = fin_suspension
+        self.motivo_sancion = motivo_sancion
 
     # Propiedades de compatibilidad
     @property
@@ -108,11 +124,11 @@ class User:
         self.estado_cuenta = "activo" if value else "bloqueado"
 
     @property
-    def carrera(self) -> Optional[str]:
+    def carrera(self) -> str | None:
         return self.programa_area
 
     @carrera.setter
-    def carrera(self, value: Optional[str]):
+    def carrera(self, value: str | None):
         self.programa_area = value
 
     @property

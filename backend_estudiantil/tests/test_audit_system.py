@@ -10,23 +10,14 @@ from backend_estudiantil.adapters.db import Base, get_engine, get_session_factor
 from backend_estudiantil.adapters.security.password_hasher import hash_password
 from backend_estudiantil.adapters.security.jwt_authenticator import JWTAuthenticator
 
+pytestmark = pytest.mark.integration
+
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def reset_db():
-    """Configura una base de datos SQLite aislada para las pruebas de auditoría."""
-    original_url = settings.DATABASE_URL
-    test_db_url = "sqlite+aiosqlite:///./test_audit.db"
-    settings.DATABASE_URL = test_db_url
-    engine = get_engine(test_db_url)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+async def reset_db(isolated_db):
+    """Utiliza la base de datos SQLite temporal aislada provista por conftest."""
     yield
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    settings.DATABASE_URL = original_url
-    get_engine(original_url)
 
 
 @pytest.mark.asyncio
@@ -50,7 +41,7 @@ async def test_audit_middleware_captures_requests_5w():
         logs = result.scalars().all()
 
         assert len(logs) >= 1
-        login_log = next((l for l in logs if l.accion == "INICIO_SESION"), None)
+        login_log = next((log_item for log_item in logs if log_item.accion == "INICIO_SESION"), None)
         assert login_log is not None
 
         # Verificación de la Regla de las 5W

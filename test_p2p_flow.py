@@ -1,6 +1,5 @@
 import urllib.request
 import json
-import sys
 
 BASE = 'http://127.0.0.1:8000'
 

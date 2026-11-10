@@ -1,14 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from fastapi.responses import RedirectResponse, HTMLResponse
 import json
 
-from backend_estudiantil.adapters.db.sqlalchemy_user_repository import SQLAlchemyUserRepository
-from backend_estudiantil.adapters.security.facebook_oauth2_authenticator import FacebookOAuth2Authenticator
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.responses import HTMLResponse, RedirectResponse
+
+from backend_estudiantil.adapters.db.sqlalchemy_user_repository import (
+    SQLAlchemyUserRepository,
+)
+from backend_estudiantil.adapters.security.facebook_oauth2_authenticator import (
+    FacebookOAuth2Authenticator,
+)
 from backend_estudiantil.adapters.security.jwt_authenticator import JWTAuthenticator
 from backend_estudiantil.config.settings import settings
 from backend_estudiantil.domain.models.user import User
 from backend_estudiantil.ports.repositories.user_repository import UserRepository
-from backend_estudiantil.schemas.auth import Token
 
 router = APIRouter(prefix="/auth/facebook", tags=["auth"])
 
@@ -48,7 +52,6 @@ async def facebook_callback(
 
     user = await repo.get_by_email(email)
     if not user:
-        es_inst = settings.es_dominio_institucional(email)
         uni = settings.obtener_universidad_por_dominio(email)
         user = User(
             correo_institucional=email,
@@ -56,7 +59,7 @@ async def facebook_callback(
             name=name,
             rol="usuario",
             estado_cuenta="activo",
-            verificado_comunidad=es_inst,
+            verificado_comunidad=False,  # Facebook OAuth nunca otorga verificado_comunidad
             universidad=uni,
             perfil_completo=bool(name and uni),
         )

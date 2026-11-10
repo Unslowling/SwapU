@@ -57,8 +57,7 @@ def _cargar_modelo():
     """Carga MobileNetV3-Large con pesos pre-entrenados (se descarga una sola vez ~20 MB)."""
     try:
         import torch
-        import torchvision.models as models
-        from torchvision import transforms
+        from torchvision import models, transforms
 
         modelo = models.mobilenet_v3_large(
             weights=models.MobileNet_V3_Large_Weights.IMAGENET1K_V1
@@ -148,8 +147,8 @@ def _extraer_texto_ocr(imagen_bytes: bytes) -> list[str]:
         return []
 
     try:
-        from PIL import Image
         import numpy as np
+        from PIL import Image
         imagen = Image.open(io.BytesIO(imagen_bytes)).convert("RGB")
         arr = np.array(imagen)
         resultados = lector.readtext(arr, detail=0, paragraph=False)
@@ -231,13 +230,12 @@ def _codigo_presente(codigo: str, textos: list[str]) -> bool:
 
 
 
-from typing import Optional
 
 
 def verificar_imagen(
     imagen_bytes: bytes,
     codigo_desafio: str,
-    umbral_libro: Optional[float] = None,
+    umbral_libro: float | None = None,
 ) -> dict:
     """
     Punto de entrada principal del módulo de IA.

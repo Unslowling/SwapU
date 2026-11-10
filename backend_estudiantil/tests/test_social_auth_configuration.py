@@ -9,6 +9,8 @@ from backend_estudiantil.adapters.security.facebook_oauth2_authenticator import 
 )
 from backend_estudiantil.config.settings import settings
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(

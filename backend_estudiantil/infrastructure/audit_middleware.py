@@ -13,7 +13,6 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -97,6 +96,12 @@ def _clasificar_accion_y_recurso(metodo: str, ruta: str) -> tuple[str, str]:
         return "CONSULTAR_LOGS_AUDITORIA", "auditoria"
 
 
+    # Confirmación de correo
+    if "/auth/confirmar" in ruta:
+        return "CONFIRMAR_CORREO_INSTITUCIONAL", "auth"
+    if "/auth/reenviar-codigo" in ruta:
+        return "REENVIAR_CODIGO_CONFIRMACION", "auth"
+
     # Calificaciones
     if "/calificaciones" in ruta:
         return "REGISTRAR_CALIFICACION" if metodo == "POST" else "CONSULTAR_CALIFICACIONES", "calificaciones"
@@ -112,7 +117,7 @@ def _clasificar_accion_y_recurso(metodo: str, ruta: str) -> tuple[str, str]:
     return accion_def[:100], "general"
 
 
-def _extraer_identidad_token(request: Request) -> tuple[Optional[int], Optional[str], Optional[str]]:
+def _extraer_identidad_token(request: Request) -> tuple[int | None, str | None, str | None]:
     """Extrae usuario_id, email y rol a partir del Bearer token o cookies (Who)."""
     token = None
     auth_header = request.headers.get("authorization")

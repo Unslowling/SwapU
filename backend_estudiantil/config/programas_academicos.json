@@ -1,0 +1,40 @@
+{
+  "Facultad de Ingenierías": [
+    "Ingeniería de Datos y Software",
+    "Ingeniería de Sistemas Cibernéticos",
+    "Ingeniería de Sonido",
+    "Ingeniería Industrial",
+    "Ingeniería Ambiental",
+    "Ingeniería Electrónica",
+    "Ingeniería Multimedia",
+    "Creación de Contenidos Digitales",
+    "Otra"
+  ],
+  "Facultad de Ciencias Empresariales": [
+    "Administración de Negocios",
+    "Contaduría Pública",
+    "Negocios Internacionales",
+    "Otra"
+  ],
+  "Facultad de Arquitectura y Artes": [
+    "Arquitectura",
+    "Diseño Industrial",
+    "Otra"
+  ],
+  "Facultad de Derecho y Ciencias Políticas": [
+    "Derecho",
+    "Otra"
+  ],
+  "Facultad de Psicología": [
+    "Psicología",
+    "Otra"
+  ],
+  "Facultad de Educación": [
+    "Licenciatura en Educación Preescolar",
+    "Licenciatura en Educación Artística y Cultural",
+    "Licenciatura en Educación Física y Deportes",
+    "Licenciatura en Lengua Castellana",
+    "Tecnología en Entrenamiento Deportivo",
+    "Otra"
+  ]
+}

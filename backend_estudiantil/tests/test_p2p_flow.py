@@ -11,23 +11,13 @@ from backend_estudiantil.adapters.db import get_engine
 from backend_estudiantil.config.settings import settings
 from backend_estudiantil.infrastructure.main import app
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.fixture
-def api_client(tmp_path):
-    original_url = settings.DATABASE_URL
-    original_storage_path = settings.BOOK_VERIFICATION_STORAGE_PATH
-    test_url = f"sqlite+aiosqlite:///{tmp_path / 'p2p-flow.db'}"
-    settings.DATABASE_URL = test_url
-    settings.BOOK_VERIFICATION_STORAGE_PATH = str(tmp_path / "private-photos")
-    test_engine = get_engine(test_url)
-    try:
-        with TestClient(app) as client:
-            yield client
-    finally:
-        asyncio.run(test_engine.dispose())
-        settings.DATABASE_URL = original_url
-        settings.BOOK_VERIFICATION_STORAGE_PATH = original_storage_path
-        get_engine(original_url)
+def api_client(isolated_db):
+    with TestClient(app) as client:
+        yield client
 
 
 def _register_and_login(client: TestClient, name: str, email: str, role: str = "user"):

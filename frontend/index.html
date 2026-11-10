@@ -45,7 +45,7 @@
                     <span class="nav-badge" id="matches-badge">3</span>
                 </button>
                 <button class="nav-item" data-nav="trades" id="nav-btn-trades">
-                    <i class="fa-solid fa-handshake"></i> Mis Trueques
+                    <i class="fa-solid fa-handshake"></i> Trueques
                 </button>
                 <button class="nav-item" data-nav="chat" id="nav-btn-chat">
                     <i class="fa-solid fa-comments"></i> Chat
@@ -53,6 +53,10 @@
                 </button>
                 <button class="nav-item" data-nav="profile" id="nav-btn-profile">
                     <i class="fa-solid fa-user"></i> Mi Perfil
+                </button>
+                <button class="nav-item" data-nav="tickets" id="nav-btn-tickets">
+                    <i class="fa-solid fa-headset"></i> Tickets
+                    <span class="nav-badge" id="tickets-nav-badge" style="display: none; background: #f59e0b;">!</span>
                 </button>
                 <button class="nav-item" data-nav="admin" id="nav-admin-btn" style="display: none; color: #f87171;">
                     <i class="fa-solid fa-shield-halved"></i> Panel Admin
@@ -68,7 +72,7 @@
 
                 <!-- Post Book Button -->
                 <button class="btn btn-primary btn-sm" onclick="app.openPublishBookModal()" id="btn-header-publish">
-                    <i class="fa-solid fa-plus"></i> Publicar Libro
+                    <i class="fa-solid fa-plus"></i> Publicar
                 </button>
 
                 <!-- Guest Actions (Cuando no hay sesión iniciada) -->
@@ -108,11 +112,11 @@
             <!-- Hero Banner -->
             <div class="hero-banner">
                 <div class="hero-content">
-                    <div class="hero-badge" style="background: rgba(234, 88, 12, 0.18); border: 1px solid rgba(234, 88, 12, 0.5); color: #ea580c; font-weight: 700;">
-                        <i class="fa-solid fa-graduation-cap"></i> Comunidad Bonaventuriana USBMED (@usbmed.edu.co) · Red de Trueque
+                    <div class="hero-badge">
+                        <i class="fa-solid fa-book-open"></i> Comunidad de Lectores · SwapU
                     </div>
                     <h2 class="hero-title">Intercambia libros y material con personas cerca de ti</h2>
-                    <p class="hero-subtitle">Plataforma colaborativa de trueque solidario de libros y apuntes con énfasis oficial en la <strong>Universidad de San Buenaventura Medellín (USBMED)</strong> y abierta a toda la comunidad universitaria y general. Sin dinero, matching inteligente y entregas seguras en campus.</p>
+                    <p class="hero-subtitle">Conecta con otros lectores, consigue los libros que necesitas e intercambia los que ya no usas — sin gastar dinero. Para estudiantes, profesionales, aficionados y cualquier persona que ame los libros.</p>
                     <div class="hero-actions">
                         <button class="btn btn-primary" onclick="app.openModal('publish-book-modal')">
                             <i class="fa-solid fa-plus"></i> Publicar un Libro
@@ -137,7 +141,6 @@
 
                 <div class="category-pills">
                     <button class="category-pill active" data-category="all">Todos los libros</button>
-                    <button class="category-pill usbmed-pill" data-category="usbmed" id="pill-usbmed"><i class="fa-solid fa-graduation-cap"></i> Solo USBMED</button>
                     <button class="category-pill" data-category="1">Ingeniería y Tecnología</button>
                     <button class="category-pill" data-category="2">Medicina y Salud</button>
                     <button class="category-pill" data-category="3">Ciencias Básicas</button>
@@ -276,11 +279,10 @@
 
                     <!-- Sugerencias de respuestas rápidas -->
                     <div class="chat-quick-replies" id="chat-quick-replies-area">
-                        <button class="quick-reply-chip">¿Nos vemos en Campus Salento (USBMED)?</button>
-                        <button class="quick-reply-chip">¿Nos vemos en Campus San Benito (Centro)?</button>
-                        <button class="quick-reply-chip">En la Biblioteca Central USBMED</button>
+                        <button class="quick-reply-chip">¿Dónde nos encontramos para la entrega?</button>
                         <button class="quick-reply-chip">¿A qué hora te queda bien hoy?</button>
                         <button class="quick-reply-chip">Ya estoy en el punto de encuentro.</button>
+                        <button class="quick-reply-chip">El libro está en excelente estado.</button>
                     </div>
 
                     <!-- Caja de Envío -->
@@ -298,6 +300,45 @@
         <!-- ------------------------------------------------------------------
              VISTA 5: Perfil con Verificación y Reputación
              ------------------------------------------------------------------ -->
+        
+        <!-- ------------------------------------------------------------------
+             VISTA TICKETS: Centro de Tickets de Revisión de Libros
+             ------------------------------------------------------------------ -->
+        <section id="view-tickets" class="view-section">
+            <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(168, 85, 247, 0.08)); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.75rem; margin-bottom: 2rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                    <div>
+                        <h2 style="margin: 0; font-size: 1.6rem; display: flex; align-items: center; gap: 0.6rem;">
+                            <i class="fa-solid fa-headset" style="color: var(--primary);"></i>
+                            Centro de Tickets y Revisión de Libros
+                        </h2>
+                        <p style="margin: 0.35rem 0 0; color: var(--text-secondary); font-size: 0.92rem; max-width: 650px;">
+                            Canal de comunicación directa entre estudiantes y moderadores para resolver dudas, aclarar fotos y validar publicaciones en revisión.
+                        </p>
+                    </div>
+                    <div style="display: flex; gap: 0.75rem;">
+                        <button class="btn btn-secondary" onclick="app.renderTicketsView()" style="display: flex; align-items: center; gap: 0.4rem;">
+                            <i class="fa-solid fa-rotate"></i> Actualizar
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Barra de Filtros -->
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1.25rem;">
+                    <button class="btn btn-sm btn-outline active" id="ticket-filter-btn-all" onclick="app.filterTicketsByStatus('')">Todos</button>
+                    <button class="btn btn-sm btn-outline" id="ticket-filter-btn-esperando" onclick="app.filterTicketsByStatus('esperando_estudiante')">Esperando mi respuesta</button>
+                    <button class="btn btn-sm btn-outline" id="ticket-filter-btn-revision" onclick="app.filterTicketsByStatus('en_revision')">En revisión</button>
+                    <button class="btn btn-sm btn-outline" id="ticket-filter-btn-abierto" onclick="app.filterTicketsByStatus('abierto')">Abiertos</button>
+                    <button class="btn btn-sm btn-outline" id="ticket-filter-btn-resuelto" onclick="app.filterTicketsByStatus('resuelto')">Resueltos / Cerrados</button>
+                </div>
+            </div>
+
+            <!-- Listado Principal de Tickets -->
+            <div id="tickets-view-container" style="display: grid; gap: 1rem;">
+                <!-- Se inyecta dinámicamente -->
+            </div>
+        </section>
+
         <section id="view-profile" class="view-section">
             <div class="profile-card">
                 <div class="profile-cover"></div>
@@ -317,7 +358,7 @@
                         </div>
                         <p style="color: var(--text-secondary); margin-top: 0.35rem; font-size: 0.92rem;">
                             <i class="fa-solid fa-graduation-cap" style="color: var(--primary); margin-right: 0.3rem;"></i>
-                            <span id="prof-carrera">Carrera no especificada</span> • <span id="prof-univ">Universidad no especificada</span>
+                            <span id="prof-carrera">Carrera no especificada</span><span id="prof-facultad-wrap" style="display: none;"> • <span id="prof-facultad"></span></span> • <span id="prof-univ">Universidad no especificada</span>
                             <span id="prof-semestre-wrap" style="display: none;"> • <strong id="prof-semestre" style="color: var(--text-primary);"></strong></span>
                         </p>
                         <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.2rem;">
@@ -341,6 +382,7 @@
                     <div class="profile-stat-box">
                         <div class="stat-value" id="prof-stat-rating" style="color: #fbbf24;">5.0 ★</div>
                         <div class="stat-label">Reputación Académica</div>
+                        <div id="prof-stat-reputacion-nivel" style="margin-top: 0.35rem; font-size: 0.8rem; font-weight: 700; text-transform: uppercase;"></div>
                     </div>
                     <div class="profile-stat-box">
                         <div class="stat-value" id="prof-stat-comunidad" style="font-size: 1.15rem; font-weight: 700;">Verificado</div>
@@ -352,32 +394,78 @@
                     </div>
                 </div>
 
-                <!-- Tarjeta de Acción: Solicitud de Verificación con Carné si la cuenta es limitada -->
-                <div id="prof-carnet-card" style="display: none; margin: 1.5rem 1.5rem 0.5rem 1.5rem; padding: 1.25rem; background: linear-gradient(135deg, rgba(234, 88, 12, 0.08), rgba(99, 102, 241, 0.08)); border: 1px dashed rgba(234, 88, 12, 0.4); border-radius: var(--radius-md);">
+                <!-- Tarjeta de Acción: Distintivo de Estudiante Verificado (Opcional) -->
+                <div id="prof-carnet-card" style="display: none; margin: 1.5rem 1.5rem 0.5rem 1.5rem; padding: 1.25rem; background: linear-gradient(135deg, rgba(234, 88, 12, 0.06), rgba(99, 102, 241, 0.06)); border: 1px dashed rgba(99, 102, 241, 0.35); border-radius: var(--radius-md);">
                     <div style="display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap;">
                         <div style="width: 44px; height: 44px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
                             <i class="fa-solid fa-id-card"></i>
                         </div>
                         <div style="flex: 1; min-width: 250px;">
-                            <h4 style="margin: 0 0 0.35rem 0; font-size: 1.05rem; color: var(--text-primary);">Distintivo de Estudiante Verificado</h4>
-                            <p style="margin: 0 0 0.85rem 0; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.45;">
-                                ¿Perteneces a una universidad? Sube una foto de tu <strong>carné estudiantil vigente</strong> para obtener el distintivo de <strong>Estudiante Verificado</strong> y potenciar las coincidencias de matching con compañeros de tu carrera o institución.
+                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                <h4 style="margin: 0; font-size: 1.05rem; color: var(--text-primary);">Distintivo de Estudiante Verificado (opcional)</h4>
+                                <div id="prof-carnet-badge-pill"></div>
+                            </div>
+                            <p style="margin: 0 0 0.85rem 0; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5;">
+                                La verificación de comunidad es <strong>opcional</strong>; no es requerida para publicar libros ni proponer trueques. Al verificar tu condición estudiantil obtienes beneficios adicionales: <strong>hasta 10 publicaciones activas</strong> (en lugar de 3), <strong>prioridad en el motor de matching</strong> con estudiantes de tu misma universidad y el distintivo oficial en tu perfil.
                             </p>
-                            <div id="prof-carnet-status" style="margin-bottom: 0.75rem; font-size: 0.85rem;"></div>
-                            <form id="form-upload-carnet" onsubmit="event.preventDefault(); app.submitUploadCarnet();" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
-                                <input type="file" id="carnet-file-input" accept="image/jpeg,image/png,image/webp" class="form-control" style="max-width: 300px; font-size: 0.85rem; padding: 0.4rem 0.6rem;" required>
-                                <button type="submit" class="btn btn-primary btn-sm" id="btn-upload-carnet">
-                                    <i class="fa-solid fa-cloud-arrow-up"></i> Enviar Carné a Revisión
-                                </button>
+
+                            <!-- Contenedor solo visible si está verificado -->
+                            <div id="prof-verificado-only" style="display: none; margin: 0.75rem 0;">
+                                <span class="badge" style="padding: 0.45rem 0.9rem; border-radius: 999px; font-size: 0.88rem; font-weight: 700; background: linear-gradient(135deg, #22c55e, #16a34a); color: #fff;">
+                                    <i class="fa-solid fa-graduation-cap" style="margin-right: 0.4rem;"></i>Estudiante Verificado <span id="prof-verificado-univ"></span>
+                                </span>
+                            </div>
+
+                            <!-- Estado detallado: sin verificar, carné en revisión, rechazado (con motivo) -->
+                            <div id="prof-carnet-status" style="margin-bottom: 0.85rem;"></div>
+
+                            <!-- Formulario de subida de carné (oculto si ya está verificado) -->
+                            <form id="form-upload-carnet" onsubmit="event.preventDefault(); app.submitUploadCarnet();" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                                <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                                    <input type="file" id="carnet-file-input" accept=".jpg,.jpeg,.png,image/jpeg,image/png" onchange="app.onCarnetFileSelected(this)" style="display: none;">
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('carnet-file-input').click()">
+                                        <i class="fa-solid fa-file-image"></i> Seleccionar Carné (JPG/PNG)
+                                    </button>
+                                    <span style="font-size: 0.78rem; color: var(--text-muted);">Máximo 10 MB. Formatos permitidos: JPG o PNG.</span>
+                                </div>
+
+                                <!-- Vista previa estilizada -->
+                                <div id="carnet-preview-container" style="display: none; align-items: center; gap: 0.85rem; padding: 0.6rem; background: var(--bg-surface-elevated); border: 1px solid var(--border-color); border-radius: var(--radius-sm); max-width: 400px;">
+                                    <img id="carnet-preview-img" src="" alt="Vista previa del carné" style="max-height: 75px; max-width: 120px; object-fit: contain; border-radius: 4px; border: 1px solid var(--border-light);">
+                                    <div style="flex: 1; min-width: 0;">
+                                        <div id="carnet-preview-name" style="font-size: 0.82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-primary);"></div>
+                                        <div id="carnet-preview-size" style="font-size: 0.75rem; color: var(--text-muted);"></div>
+                                        <button type="button" class="btn btn-link btn-sm" onclick="app.clearCarnetFile()" style="font-size: 0.75rem; color: var(--danger); padding: 0; text-decoration: underline; background: none; border: none; cursor: pointer; margin-top: 0.2rem;">
+                                            <i class="fa-solid fa-trash-can"></i> Quitar selección
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Aviso de Privacidad y Eliminación -->
+                                <div style="padding: 0.65rem 0.85rem; background: rgba(59, 130, 246, 0.08); border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 0.78rem; color: var(--text-secondary); line-height: 1.45;">
+                                    <i class="fa-solid fa-shield-halved" style="color: #3b82f6; margin-right: 0.35rem;"></i>
+                                    <strong>Aviso de Privacidad:</strong> Puedes tapar tu número de documento de identidad antes de subir la foto. El carné únicamente es visualizado por el equipo de moderación y <strong>se elimina de manera permanente e inmediata al finalizar la revisión</strong>.
+                                </div>
+
+                                <div>
+                                    <button type="submit" class="btn btn-primary btn-sm" id="btn-upload-carnet">
+                                        <i class="fa-solid fa-cloud-arrow-up"></i> Enviar Carné a Revisión
+                                    </button>
+                                </div>
                             </form>
-                            <!-- Validación por código de correo institucional -->
-                            <div style="margin-top: 1rem; padding-top: 0.85rem; border-top: 1px dashed rgba(99, 102, 241, 0.25);">
-                                <h5 style="margin: 0 0 0.25rem 0; font-size: 0.9rem; color: var(--text-primary);"><i class="fa-solid fa-envelope-circle-check" style="color: var(--primary); margin-right: 0.3rem;"></i>¿Tienes correo institucional?</h5>
-                                <p style="margin: 0 0 0.5rem 0; font-size: 0.8rem; color: var(--text-secondary);">Ingresa el código de 6 dígitos que enviamos a tu correo institucional al registrarte:</p>
-                                <form id="form-confirmar-codigo" onsubmit="event.preventDefault(); app.submitConfirmarCodigo();" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                                    <input type="text" id="confirm-code-input" maxlength="6" placeholder="123456" class="form-control" style="max-width: 130px; font-size: 0.9rem; text-align: center; letter-spacing: 2px; font-weight: bold;" required>
-                                    <button type="submit" class="btn btn-outline btn-sm" id="btn-confirm-code">Validar Código</button>
-                                    <button type="button" class="btn btn-link btn-sm" onclick="app.reenviarCodigo()" style="font-size: 0.8rem; text-decoration: underline; background: none; border: none; color: var(--primary); cursor: pointer;">Reenviar código</button>
+
+                            <!-- Validación por código de correo institucional (solo si es correo institucional y no confirmado) -->
+                            <div id="prof-codigo-seccion" style="display: none; margin-top: 1rem; padding-top: 0.85rem; border-top: 1px dashed rgba(99, 102, 241, 0.25);">
+                                <h5 style="margin: 0 0 0.25rem 0; font-size: 0.9rem; color: var(--text-primary);"><i class="fa-solid fa-envelope-circle-check" style="color: var(--primary); margin-right: 0.3rem;"></i>Confirmación por correo institucional</h5>
+                                <p style="margin: 0 0 0.5rem 0; font-size: 0.8rem; color: var(--text-secondary);">Ingresa el código numérico de 6 dígitos que enviamos a tu correo institucional:</p>
+                                <form id="form-confirmar-codigo" onsubmit="event.preventDefault(); app.submitConfirmarCodigo();" style="display: flex; gap: 0.65rem; align-items: center; flex-wrap: wrap;">
+                                    <input type="text" id="confirm-code-input" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="123456" class="form-control" style="max-width: 130px; font-size: 1rem; text-align: center; letter-spacing: 3px; font-weight: bold;" required>
+                                    <button type="submit" class="btn btn-primary btn-sm" id="btn-confirm-code">
+                                        <i class="fa-solid fa-circle-check"></i> Validar Código
+                                    </button>
+                                    <button type="button" class="btn btn-secondary btn-sm" id="btn-reenviar-codigo" onclick="app.reenviarCodigo()" style="font-size: 0.8rem;">
+                                        <i class="fa-solid fa-arrow-rotate-right"></i> <span id="lbl-reenviar-codigo">Reenviar código</span>
+                                    </button>
                                 </form>
                             </div>
                         </div>
@@ -497,6 +585,37 @@
                 <div id="admin-book-verification-queue" style="display:grid; gap:1rem;">
                     <p style="color:var(--text-muted);">Cargando evidencias...</p>
                 </div>
+                <!-- SECCIÓN: TICKETS DE REVISIÓN CON ESTUDIANTES -->
+                <div style="margin-top: 2rem; background: var(--bg-surface-elevated); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.25rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+                        <div>
+                            <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 1.15rem;">
+                                <i class="fa-solid fa-headset" style="color: var(--primary);"></i>
+                                Tickets de Revisión de Libros
+                            </h3>
+                            <p style="margin: 0.2rem 0 0; color: var(--text-secondary); font-size: 0.82rem;">
+                                Canales de comunicación directa con los estudiantes sobre libros observados o en revisión.
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <select id="admin-tickets-filter-status" class="form-control" style="font-size: 0.82rem; padding: 0.35rem 0.65rem;" onchange="app.loadAdminTickets()">
+                                <option value="">Todos los estados</option>
+                                <option value="abierto">Abiertos</option>
+                                <option value="esperando_estudiante">Esperando al estudiante</option>
+                                <option value="en_revision">En revisión</option>
+                                <option value="resuelto">Resueltos</option>
+                                <option value="cerrado">Cerrados</option>
+                            </select>
+                            <button class="btn btn-secondary btn-sm" onclick="app.loadAdminTickets()" title="Recargar tickets">
+                                <i class="fa-solid fa-rotate"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="admin-tickets-list" style="display: grid; gap: 0.75rem;">
+                        <p style="color: var(--text-muted); font-size: 0.85rem;">Cargando tickets de revisión...</p>
+                    </div>
+                </div>
+
 
                 <!-- ==========================================================
                      SECCIÓN: SISTEMA AUDITOR (REGLA DE LAS 5W)
@@ -725,13 +844,10 @@
                     <hr style="flex: 1; border: none; border-top: 1px solid var(--border-light);">
                 </div>
 
-                <!-- Aviso de Comunidad Institucional USBMED -->
-                <div class="usbmed-callout-box">
-                    <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.25rem;">
-                        <span class="badge-usbmed"><i class="fa-solid fa-graduation-cap"></i> USBMED Oficial</span>
-                        <strong style="color: var(--text-primary); font-size: 0.88rem;">Comunidad Bonaventuriana</strong>
-                    </div>
-                    Si eres estudiante, docente o egresado de la <strong>Universidad de San Buenaventura Medellín (@usbmed.edu.co)</strong>, ingresa tu correo institucional. Te enviaremos un código de 6 dígitos para validar tu cuenta al instante, otorgarte la insignia de <em>Estudiante USBMED Verificado</em> y darte prioridad en matches dentro de los campus Salento y San Benito.
+                <!-- Aviso de Comunidad Institucional -->
+                <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 0.75rem 0.9rem; margin-bottom: 1rem; font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">
+                    <i class="fa-solid fa-graduation-cap" style="color: var(--primary); margin-right: 0.35rem;"></i>
+                    <strong>Comunidad y Estudiantes:</strong> Todos los usuarios (incluyendo cuentas de Gmail) pueden publicar y proponer trueques. Si además te registras con correo institucional o subes tu carné, obtendrás el distintivo de <em>Estudiante Verificado</em> para un matching académico más preciso.
                 </div>
 
                 <!-- Formulario de Registro -->
@@ -741,47 +857,62 @@
                         <input type="text" id="reg-name" class="form-control" placeholder="Ej. Juan Pérez" required autocomplete="name">
                     </div>
                     <div class="form-group">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <label class="form-label">Correo electrónico (*):</label>
-                            <button type="button" onclick="app.quickFillUsbmedDomain()" style="font-size:0.73rem; padding: 0.15rem 0.5rem; color: var(--primary); border: 1px solid var(--primary); background: rgba(234,88,12,0.08); border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
-                                <i class="fa-solid fa-graduation-cap"></i> + @usbmed.edu.co
-                            </button>
-                        </div>
-                        <input type="email" id="reg-email" class="form-control" placeholder="juan.perez@usbmed.edu.co" required autocomplete="email" oninput="app.onRegisterEmailInput(this.value)">
+                        <label class="form-label">Correo electrónico (*):</label>
+                        <input type="email" id="reg-email" class="form-control" placeholder="estudiante@tau.usbmed.edu.co" required autocomplete="email" oninput="app.onRegisterEmailInput(this.value)">
                     </div>
                     <div class="form-group">
                         <label class="form-label">Contraseña (*):</label>
                         <input type="password" id="reg-password" class="form-control" placeholder="Mínimo 6 caracteres" required autocomplete="new-password">
                     </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-                        <div class="form-group">
-                            <label class="form-label">Carrera / Programa:</label>
-                            <input type="text" id="reg-carrera" class="form-control" placeholder="Ej. Ing. de Sistemas">
+                    <!-- Información Académica y Contacto (Conectada y Unificada) -->
+                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 0.9rem; margin-bottom: 1.1rem;">
+                        <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem; letter-spacing: 0.3px; text-transform: uppercase;">
+                            <i class="fa-solid fa-graduation-cap" style="color: var(--primary);"></i> Información Académica y Contacto
                         </div>
-                        <div class="form-group">
-                            <label class="form-label">Semestre:</label>
-                            <select id="reg-semestre" class="form-control">
-                                <option value="">Seleccionar...</option>
-                                <option value="1">1° Semestre</option>
-                                <option value="2">2° Semestre</option>
-                                <option value="3">3° Semestre</option>
-                                <option value="4">4° Semestre</option>
-                                <option value="5">5° Semestre</option>
-                                <option value="6">6° Semestre</option>
-                                <option value="7">7° Semestre</option>
-                                <option value="8">8° Semestre</option>
-                                <option value="9">9° Semestre</option>
-                                <option value="10">10° Semestre o superior</option>
-                            </select>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label class="form-label">Universidad o Institución:</label>
+                                <input type="text" id="reg-univ" class="form-control" placeholder="Ej. Universidad de San Buenaventura Medellín (USBMED)">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label class="form-label">Facultad USB Medellín:</label>
+                                <select id="reg-facultad" class="form-control" onchange="app.onFacultadChange('reg')">
+                                    <option value="">Seleccionar facultad...</option>
+                                </select>
+                            </div>
                         </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Universidad o Institución:</label>
-                        <input type="text" id="reg-univ" class="form-control" placeholder="Ej. Universidad de San Buenaventura Medellín (USBMED)">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Teléfono / WhatsApp de contacto:</label>
-                        <input type="text" id="reg-tel" class="form-control" placeholder="+57 300 123 4567" autocomplete="tel">
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label class="form-label">Carrera / Programa:</label>
+                                <select id="reg-carrera" class="form-control">
+                                    <option value="">Seleccionar carrera...</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label class="form-label">Semestre actual:</label>
+                                <select id="reg-semestre" class="form-control">
+                                    <option value="">Seleccionar...</option>
+                                    <option value="1">1° Semestre</option>
+                                    <option value="2">2° Semestre</option>
+                                    <option value="3">3° Semestre</option>
+                                    <option value="4">4° Semestre</option>
+                                    <option value="5">5° Semestre</option>
+                                    <option value="6">6° Semestre</option>
+                                    <option value="7">7° Semestre</option>
+                                    <option value="8">8° Semestre</option>
+                                    <option value="9">9° Semestre</option>
+                                    <option value="10">10° Semestre o superior</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label">Teléfono / WhatsApp de contacto:</label>
+                            <input type="text" id="reg-tel" class="form-control" placeholder="+57 300 123 4567" autocomplete="tel">
+                            <small style="color: var(--text-muted); font-size: 0.76rem;">Conectado a tu perfil para coordinar las entregas de trueques.</small>
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-primary" style="width: 100%;">
                         <i class="fa-solid fa-user-plus"></i> Crear Cuenta
@@ -1056,36 +1187,55 @@
                         <label class="form-label">Nombre completo (*):</label>
                         <input type="text" id="edit-prof-name" class="form-control" placeholder="Ej. Juan Pérez" required>
                     </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-                        <div class="form-group">
-                            <label class="form-label">Carrera / Programa (*):</label>
-                            <input type="text" id="edit-prof-carrera" class="form-control" placeholder="Ej. Ingeniería de Sistemas" required>
+                    <!-- Información Académica y Contacto (Conectada y Unificada) -->
+                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 0.9rem; margin-bottom: 1.1rem;">
+                        <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem; letter-spacing: 0.3px; text-transform: uppercase;">
+                            <i class="fa-solid fa-graduation-cap" style="color: var(--primary);"></i> Información Académica y Contacto
                         </div>
-                        <div class="form-group">
-                            <label class="form-label">Semestre actual:</label>
-                            <select id="edit-prof-semestre" class="form-control">
-                                <option value="">No especificado</option>
-                                <option value="1">1° Semestre</option>
-                                <option value="2">2° Semestre</option>
-                                <option value="3">3° Semestre</option>
-                                <option value="4">4° Semestre</option>
-                                <option value="5">5° Semestre</option>
-                                <option value="6">6° Semestre</option>
-                                <option value="7">7° Semestre</option>
-                                <option value="8">8° Semestre</option>
-                                <option value="9">9° Semestre</option>
-                                <option value="10">10° Semestre o superior</option>
-                            </select>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label class="form-label">Universidad o Institución (*):</label>
+                                <input type="text" id="edit-prof-univ" class="form-control" placeholder="Ej. Universidad de San Buenaventura Medellín (USBMED)" required>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label class="form-label">Facultad USB Medellín:</label>
+                                <select id="edit-prof-facultad" class="form-control" onchange="app.onFacultadChange('edit')">
+                                    <option value="">Seleccionar facultad...</option>
+                                </select>
+                            </div>
                         </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Universidad o Institución (*):</label>
-                        <input type="text" id="edit-prof-univ" class="form-control" placeholder="Ej. Universidad Nacional de Colombia" required>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Teléfono / WhatsApp de contacto (*):</label>
-                        <input type="text" id="edit-prof-tel" class="form-control" placeholder="+57 300 123 4567" required>
-                        <small style="color: var(--text-muted); font-size: 0.78rem;">Requerido para coordinar puntos de entrega de trueques.</small>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label class="form-label">Carrera / Programa (*):</label>
+                                <select id="edit-prof-carrera" class="form-control" required>
+                                    <option value="">Seleccionar carrera...</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label class="form-label">Semestre actual:</label>
+                                <select id="edit-prof-semestre" class="form-control">
+                                    <option value="">No especificado</option>
+                                    <option value="1">1° Semestre</option>
+                                    <option value="2">2° Semestre</option>
+                                    <option value="3">3° Semestre</option>
+                                    <option value="4">4° Semestre</option>
+                                    <option value="5">5° Semestre</option>
+                                    <option value="6">6° Semestre</option>
+                                    <option value="7">7° Semestre</option>
+                                    <option value="8">8° Semestre</option>
+                                    <option value="9">9° Semestre</option>
+                                    <option value="10">10° Semestre o superior</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label">Teléfono / WhatsApp de contacto (*):</label>
+                            <input type="text" id="edit-prof-tel" class="form-control" placeholder="+57 300 123 4567" required autocomplete="tel">
+                            <small style="color: var(--text-muted); font-size: 0.76rem;">Requerido para coordinar puntos de entrega de trueques.</small>
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-primary" style="width: 100%;">
                         <i class="fa-solid fa-floppy-disk"></i> Guardar Cambios del Perfil
@@ -1106,6 +1256,107 @@
             </div>
             <div class="modal-body" id="audit-modal-body">
                 <!-- Se inyecta dinámicamente -->
+            </div>
+        </div>
+    </div>
+
+    
+    <!-- ==================================================================
+         MODAL: CONVERSACIÓN DE TICKET DE REVISIÓN
+         ================================================================== -->
+    <div class="modal-backdrop" id="ticket-modal">
+        <div class="modal-box" style="max-width: 720px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
+            <div class="modal-header" style="border-bottom: 1px solid var(--border-color); padding-bottom: 0.85rem;">
+                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                    <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                        <h3 id="ticket-modal-subject" style="margin: 0; font-size: 1.15rem;">Ticket de Revisión</h3>
+                        <span id="ticket-modal-status-badge" class="status-badge">Estado</span>
+                        <span id="ticket-modal-priority-badge" class="badge" style="font-size: 0.75rem;">Prioridad</span>
+                    </div>
+                    <div id="ticket-modal-book-info" style="font-size: 0.82rem; color: var(--text-secondary);">
+                        <!-- Libro y usuario -->
+                    </div>
+                </div>
+                <button class="btn-icon" onclick="app.closeModal('ticket-modal')"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            
+            <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.85rem;" id="ticket-messages-container">
+                <!-- Mensajes del hilo -->
+            </div>
+
+            <div style="padding: 1rem; border-top: 1px solid var(--border-color); background: var(--bg-surface-elevated); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">
+                <form onsubmit="event.preventDefault(); app.submitTicketMessage();">
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.6rem;">
+                        <textarea id="ticket-reply-input" class="form-control" placeholder="Escribe tu mensaje o respuesta para la revisión..." rows="2" style="resize: none; flex: 1;" required></textarea>
+                        <button type="submit" class="btn btn-primary" style="align-self: flex-end; height: 50px; padding: 0 1.25rem;">
+                            <i class="fa-solid fa-paper-plane"></i>
+                        </button>
+                    </div>
+                    <div id="ticket-mod-actions" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; font-size: 0.82rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="color: var(--text-secondary);">Cambiar estado:</span>
+                            <select id="ticket-change-status-select" class="form-control" style="font-size: 0.78rem; padding: 0.2rem 0.5rem; width: auto;" onchange="app.onTicketStatusSelectChange()">
+                                <option value="abierto">Abierto</option>
+                                <option value="esperando_estudiante">Esperando al estudiante</option>
+                                <option value="en_revision">En revisión</option>
+                                <option value="resuelto">Resuelto</option>
+                                <option value="cerrado">Cerrado</option>
+                            </select>
+                        </div>
+                        <span id="ticket-last-updated" style="color: var(--text-muted); font-size: 0.75rem;"></span>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================================================================
+         MODAL: CREAR TICKET DE REVISIÓN (MODERADOR O ESTUDIANTE)
+         ================================================================== -->
+    <div class="modal-backdrop" id="create-ticket-modal">
+        <div class="modal-box" style="max-width: 580px;">
+            <div class="modal-header">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fa-solid fa-headset" style="color: var(--primary); font-size: 1.2rem;"></i>
+                    <h3 style="margin: 0; font-size: 1.15rem;">Abrir Ticket de Revisión de Libro</h3>
+                </div>
+                <button class="btn-icon" onclick="app.closeModal('create-ticket-modal')"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <form onsubmit="event.preventDefault(); app.submitCreateTicket();">
+                    <input type="hidden" id="create-ticket-pub-id" value="">
+                    
+                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 0.75rem; margin-bottom: 1rem;">
+                        <div style="font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Libro / Publicación:</div>
+                        <div id="create-ticket-pub-title" style="font-weight: 600; font-size: 0.95rem; color: var(--text-primary); margin-top: 0.15rem;">-</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Asunto del ticket (*):</label>
+                        <input type="text" id="create-ticket-subject" class="form-control" placeholder="Ej. Aclaración de fotos de verificación / ISBN borroso" required minlength="3">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Prioridad:</label>
+                        <select id="create-ticket-priority" class="form-control">
+                            <option value="media" selected>Media (Normal)</option>
+                            <option value="alta">Alta (Revisión urgente)</option>
+                            <option value="baja">Baja (Consulta general)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Mensaje o indicaciones para el estudiante (*):</label>
+                        <textarea id="create-ticket-initial-msg" class="form-control" rows="4" placeholder="Describe claramente lo que debe corregir el estudiante o la consulta sobre el libro..." required minlength="3"></textarea>
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                        <button type="button" class="btn btn-secondary" onclick="app.closeModal('create-ticket-modal')">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fa-solid fa-paper-plane"></i> Abrir Ticket y Notificar
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>

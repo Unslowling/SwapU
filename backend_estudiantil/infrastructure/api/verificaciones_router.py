@@ -8,9 +8,9 @@ import secrets
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Literal, Optional
-from uuid import uuid4
+from typing import Literal
 
+import sqlalchemy as sa
 from fastapi import (
     APIRouter,
     Depends,
@@ -27,23 +27,33 @@ from sqlalchemy import select
 
 from backend_estudiantil.adapters.db import (
     PublicacionORM,
+    UserORM,
     VerificacionPublicacionORM,
     get_session_factory,
 )
 from backend_estudiantil.config.settings import settings
+from backend_estudiantil.infrastructure.file_upload_security import (
+    validar_imagen_segura,
+    validar_ruta_segura,
+)
 from backend_estudiantil.infrastructure.security import get_current_user
 
 # Módulo de IA — importación diferida para evitar error si PyTorch no está instalado
 try:
-    from backend_estudiantil.infrastructure.verificacion_ia import verificar_imagen as _verificar_imagen_ia
+    from backend_estudiantil.infrastructure.verificacion_ia import (
+        verificar_imagen as _verificar_imagen_ia,
+    )
     _IA_DISPONIBLE = True
 except Exception as _ia_err:
     _IA_DISPONIBLE = False
     logger_init = logging.getLogger(__name__)
     logger_init.warning("Módulo de IA no disponible: %s", _ia_err)
 
+from collections import defaultdict
+
 router = APIRouter(prefix="/publicaciones", tags=["verificacion de libros"])
 logger = logging.getLogger(__name__)
+_verif_activation_locks = defaultdict(asyncio.Lock)
 
 MAX_FOTO_BYTES = 8 * 1024 * 1024
 MAX_PIXELS = 20_000_000
@@ -64,17 +74,17 @@ class EvidenciaRead(BaseModel):
     estado: str
     enviado_en: datetime
     mensaje: str
-    ia_aprobado: Optional[bool] = None
-    ia_detalle: Optional[str] = None
+    ia_aprobado: bool | None = None
+    ia_detalle: str | None = None
     ia_disponible: bool = False
 
 
 class VerificacionEstadoRead(BaseModel):
     publicacion_id: int
     estado_publicacion: str
-    estado_verificacion: Optional[str] = None
-    enviado_en: Optional[datetime] = None
-    nota_revision: Optional[str] = None
+    estado_verificacion: str | None = None
+    enviado_en: datetime | None = None
+    nota_revision: str | None = None
 
 
 class RevisionCreate(BaseModel):
@@ -95,8 +105,8 @@ class VerificacionPendienteRead(BaseModel):
     publicacion_id: int
     usuario_id: int
     titulo: str
-    autor: Optional[str]
-    isbn: Optional[str]
+    autor: str | None
+    isbn: str | None
     enviado_en: datetime
 
 
@@ -110,7 +120,9 @@ def _hash_codigo(verificacion_id: int, codigo: str) -> str:
 
 
 def _directorio_evidencia(verificacion_id: int) -> Path:
-    return Path(settings.BOOK_VERIFICATION_STORAGE_PATH).resolve() / str(verificacion_id)
+    base_dir = Path(settings.BOOK_VERIFICATION_STORAGE_PATH).resolve()
+    target_dir = base_dir / str(int(verificacion_id))
+    return validar_ruta_segura(base_dir, target_dir)
 
 
 def _normalizar_imagen(datos: bytes, destino: Path) -> str:
@@ -138,15 +150,17 @@ def _normalizar_imagen(datos: bytes, destino: Path) -> str:
 
 async def _leer_foto(foto: UploadFile) -> bytes:
     datos = await foto.read(MAX_FOTO_BYTES + 1)
+    if not datos:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Debes adjuntar ambas fotos"
+        )
     if len(datos) > MAX_FOTO_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="Cada foto debe pesar como máximo 8 MB",
         )
-    if not datos:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Debes adjuntar ambas fotos"
-        )
+    # Validar que sea un archivo de imagen real
+    validar_imagen_segura(datos, max_bytes=MAX_FOTO_BYTES)
     return datos
 
 
@@ -176,6 +190,19 @@ async def crear_desafio(
     vence_en = datetime.now(timezone.utc) + TIEMPO_DESAFIO
 
     async with get_session_factory()() as session:
+        from backend_estudiantil.domain.services.moderacion_sanciones_service import (
+            usuario_puede_operar,
+        )
+        user_res = await session.execute(select(UserORM).where(UserORM.id == usuario_id))
+        user_orm = user_res.scalar_one_or_none()
+        res_op = usuario_puede_operar(user_orm)
+        if not res_op.puede_operar:
+            fin_str = f" Fecha de fin: {res_op.fecha_fin.isoformat()}." if res_op.fecha_fin else ""
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Tu cuenta se encuentra {res_op.estado_cuenta}. Motivo: {res_op.motivo}.{fin_str}",
+            )
+
         publicacion = await _obtener_verificacion_propietario(
             session, publicacion_id, usuario_id
         )
@@ -250,7 +277,20 @@ async def enviar_evidencia(
     ahora = datetime.now(timezone.utc)
 
     async with get_session_factory()() as session:
-        publicacion = await _obtener_verificacion_propietario(
+        from backend_estudiantil.domain.services.moderacion_sanciones_service import (
+            usuario_puede_operar,
+        )
+        user_res = await session.execute(select(UserORM).where(UserORM.id == usuario_id))
+        user_orm = user_res.scalar_one_or_none()
+        res_op = usuario_puede_operar(user_orm)
+        if not res_op.puede_operar:
+            fin_str = f" Fecha de fin: {res_op.fecha_fin.isoformat()}." if res_op.fecha_fin else ""
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Tu cuenta se encuentra {res_op.estado_cuenta}. Motivo: {res_op.motivo}.{fin_str}",
+            )
+
+        await _obtener_verificacion_propietario(
             session, publicacion_id, usuario_id
         )
         result = await session.execute(
@@ -337,15 +377,37 @@ async def enviar_evidencia(
                         "aprobado_automaticamente": True,
                     }, ensure_ascii=False)
 
-                    # Activar la publicación
+                    # Activar la publicación si no supera el límite de activas
                     result_pub = await session.execute(
-                        select(PublicacionORM).where(
+                        sa.select(PublicacionORM).where(
                             PublicacionORM.id == publicacion_id
                         )
                     )
                     pub = result_pub.scalar_one_or_none()
                     if pub:
-                        pub.estado_publicacion = "activa"
+                        user_res = await session.execute(
+                            sa.select(UserORM).where(UserORM.id == pub.usuario_id)
+                        )
+                        owner = user_res.scalar_one_or_none()
+                        limite = (
+                            settings.LIMITE_PUBLICACIONES_VERIFICADOS
+                            if (owner and owner.verificado_comunidad)
+                            else settings.LIMITE_PUBLICACIONES_SIN_VERIFICAR
+                        )
+                        count_res = await session.execute(
+                            sa.select(sa.func.count(PublicacionORM.id)).where(
+                                PublicacionORM.usuario_id == pub.usuario_id,
+                                sa.cast(PublicacionORM.estado_publicacion, sa.String) == "activa",
+                            )
+                        )
+                        activas_actuales = count_res.scalar_one() or 0
+                        if activas_actuales < limite:
+                            pub.estado_publicacion = "activa"
+                        else:
+                            logger.warning(
+                                "IA verificó publicación %s pero el usuario %s tiene %s activas (límite: %s)",
+                                pub.id, pub.usuario_id, activas_actuales, limite
+                            )
                 else:
                     logger.info(
                         "IA rechazó — queda pendiente revision humana. Detalle: %s", ia_detalle
@@ -508,14 +570,38 @@ async def revisar_verificacion(
         if publicacion is None:
             raise HTTPException(status_code=404, detail="Publicación no encontrada")
 
-        verificacion.estado = payload.decision
-        verificacion.revisado_por_id = int(current_user["id"])
-        verificacion.revisado_en = datetime.now(timezone.utc)
-        verificacion.nota_revision = payload.nota.strip()
-        publicacion.estado_publicacion = (
-            "activa" if payload.decision == "aprobada" else "inactiva"
-        )
-        await session.commit()
+        async with _verif_activation_locks[publicacion.usuario_id]:
+            if payload.decision == "aprobada" and publicacion.estado_publicacion != "activa":
+                user_res = await session.execute(
+                    sa.select(UserORM).where(UserORM.id == publicacion.usuario_id)
+                )
+                owner = user_res.scalar_one_or_none()
+                limite = (
+                    settings.LIMITE_PUBLICACIONES_VERIFICADOS
+                    if (owner and owner.verificado_comunidad)
+                    else settings.LIMITE_PUBLICACIONES_SIN_VERIFICAR
+                )
+                count_res = await session.execute(
+                    sa.select(sa.func.count(PublicacionORM.id)).where(
+                        PublicacionORM.usuario_id == publicacion.usuario_id,
+                        sa.cast(PublicacionORM.estado_publicacion, sa.String) == "activa",
+                    )
+                )
+                activas_actuales = count_res.scalar_one() or 0
+                if activas_actuales >= limite:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"El autor ha alcanzado el límite máximo de {limite} publicaciones activas permitidas para su nivel de verificación.",
+                    )
+
+            verificacion.estado = payload.decision
+            verificacion.revisado_por_id = int(current_user["id"])
+            verificacion.revisado_en = datetime.now(timezone.utc)
+            verificacion.nota_revision = payload.nota.strip()
+            publicacion.estado_publicacion = (
+                "activa" if payload.decision == "aprobada" else "inactiva"
+            )
+            await session.commit()
 
     return {
         "verificacion_id": verificacion_id,

@@ -1,8 +1,14 @@
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from backend_estudiantil.adapters.db.sqlalchemy_match_repository import SQLAlchemyMatchRepository
-from backend_estudiantil.adapters.db.sqlalchemy_publicacion_repository import SQLAlchemyPublicacionRepository
+from backend_estudiantil.adapters.db.sqlalchemy_match_repository import (
+    SQLAlchemyMatchRepository,
+)
+from backend_estudiantil.adapters.db.sqlalchemy_publicacion_repository import (
+    SQLAlchemyPublicacionRepository,
+)
+from backend_estudiantil.adapters.db.sqlalchemy_user_repository import (
+    SQLAlchemyUserRepository,
+)
 from backend_estudiantil.domain.services.match_service import MatchService
 from backend_estudiantil.infrastructure.security import get_current_user
 from backend_estudiantil.schemas.trueque import MatchRead
@@ -14,6 +20,7 @@ def get_match_service() -> MatchService:
     return MatchService(
         match_repo=SQLAlchemyMatchRepository(),
         publicacion_repo=SQLAlchemyPublicacionRepository(),
+        user_repo=SQLAlchemyUserRepository(),
     )
 
 
@@ -28,13 +35,15 @@ def _match_to_read(m) -> MatchRead:
     )
 
 
-@router.get("/mis-matches", response_model=List[MatchRead], summary="Mis coincidencias")
+@router.get("/mis-matches", response_model=list[MatchRead], summary="Mis coincidencias")
 async def mis_matches(
+    skip: int = Query(0, ge=0, description="Registros a omitir"),
+    limit: int = Query(50, ge=1, le=100, description="Límite por página"),
     current_user: dict = Depends(get_current_user),
     service: MatchService = Depends(get_match_service),
 ):
-    """Retorna todos los matches (coincidencias) del usuario autenticado."""
-    matches = await service.listar_matches_usuario(current_user["id"])
+    """Retorna los matches paginados del usuario autenticado."""
+    matches = await service.listar_matches_usuario(current_user["id"], skip=skip, limit=limit)
     return [_match_to_read(m) for m in matches]
 
 
@@ -52,7 +61,7 @@ async def obtener_match(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
-@router.post("/buscar/{publicacion_id}", response_model=List[MatchRead], summary="Buscar matches para publicación")
+@router.post("/buscar/{publicacion_id}", response_model=list[MatchRead], summary="Buscar matches para publicación")
 async def buscar_matches(
     publicacion_id: int,
     current_user: dict = Depends(get_current_user),

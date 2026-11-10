@@ -6,7 +6,7 @@ services:
     container_name: trueque_db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 123456
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: trueque
     ports:
       - "5432:5432"
@@ -33,6 +33,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      - ./backend_estudiantil/config/programas_academicos.json:/app/backend_estudiantil/config/programas_academicos.json:ro
       - book_verification_data:/app/storage/book-verification
     restart: unless-stopped
 

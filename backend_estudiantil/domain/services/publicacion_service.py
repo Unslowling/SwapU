@@ -1,11 +1,16 @@
-from typing import List, Optional
+from datetime import datetime, timezone
 
 from backend_estudiantil.domain.models.publicacion import Publicacion
-from backend_estudiantil.ports.repositories.publicacion_repository import PublicacionRepository
-
-
-from backend_estudiantil.domain.services.moderacion_contenido_service import ModeracionContenidoService
-from backend_estudiantil.infrastructure.moderacion_audit_helper import registrar_auditoria_infraccion
+from backend_estudiantil.domain.services.moderacion_contenido_service import (
+    ModeracionContenidoService,
+)
+from backend_estudiantil.domain.validators.isbn_validator import validar_isbn
+from backend_estudiantil.infrastructure.moderacion_audit_helper import (
+    registrar_auditoria_infraccion,
+)
+from backend_estudiantil.ports.repositories.publicacion_repository import (
+    PublicacionRepository,
+)
 
 
 class PublicacionService:
@@ -15,10 +20,10 @@ class PublicacionService:
         self.repo = repo
         self._moderador = ModeracionContenidoService()
 
-    async def _moderar_campo(self, texto: Optional[str], campo: str, usuario_id: int) -> str:
+    async def _moderar_campo(self, texto: str | None, campo: str, usuario_id: int) -> str:
         if not texto:
             return ""
-        res = self._moderador.procesar_texto(texto)
+        res = self._moderador.procesar_contenido_publicacion(texto, campo=campo)
         if res.accion_auditoria:
             await registrar_auditoria_infraccion(
                 usuario_id=usuario_id,
@@ -39,17 +44,35 @@ class PublicacionService:
         self,
         usuario_id: int,
         titulo: str,
-        autor: Optional[str] = None,
-        isbn: Optional[str] = None,
-        edicion: Optional[str] = None,
-        categoria_id: Optional[int] = None,
-        estado_libro: Optional[str] = None,
-        descripcion: Optional[str] = None,
-        libro_buscado: Optional[str] = None,
+        autor: str | None = None,
+        isbn: str | None = None,
+        edicion: str | None = None,
+        categoria_id: int | None = None,
+        estado_libro: str | None = None,
+        descripcion: str | None = None,
+        libro_buscado: str | None = None,
+        tipo_transaccion: str | None = "trueque",
+        fecha_devolucion: datetime | None = None,
+        organizacion_id: int | None = None,
     ) -> Publicacion:
         """Crea una nueva publicación de libro o material académico con moderación de texto."""
         if not titulo or not titulo.strip():
             raise ValueError("El título de la publicación es obligatorio")
+
+        if isbn:
+            validar_isbn(isbn)
+
+        tipo_trans = tipo_transaccion or "trueque"
+        if tipo_trans not in ("trueque", "prestamo", "donacion"):
+            raise ValueError(f"Tipo de transacción '{tipo_trans}' no válido. Opciones: trueque, prestamo, donacion.")
+
+        if tipo_trans == "prestamo":
+            if not fecha_devolucion:
+                raise ValueError("Para publicaciones de tipo 'prestamo' es obligatorio especificar la fecha_devolucion.")
+            now = datetime.now(timezone.utc)
+            f_dev = fecha_devolucion if fecha_devolucion.tzinfo else fecha_devolucion.replace(tzinfo=timezone.utc)
+            if f_dev <= now:
+                raise ValueError("La fecha_devolucion de un préstamo debe ser una fecha futura.")
 
         titulo_limpio = await self._moderar_campo(titulo.strip(), "titulo", usuario_id)
         desc_limpia = await self._moderar_campo(descripcion, "descripcion", usuario_id) if descripcion else None
@@ -65,6 +88,9 @@ class PublicacionService:
             descripcion=desc_limpia,
             libro_buscado=libro_buscado,
             estado_publicacion="inactiva",
+            tipo_transaccion=tipo_trans,
+            fecha_devolucion=fecha_devolucion,
+            organizacion_id=organizacion_id,
         )
         return await self.repo.create(publicacion)
 
@@ -78,12 +104,19 @@ class PublicacionService:
         self,
         skip: int = 0,
         limit: int = 50,
-        categoria_id: Optional[int] = None,
-        busqueda: Optional[str] = None,
-    ) -> List[Publicacion]:
-        return await self.repo.list_activas(skip=skip, limit=limit, categoria_id=categoria_id, busqueda=busqueda)
+        categoria_id: int | None = None,
+        busqueda: str | None = None,
+        organizacion_id: int | None = None,
+    ) -> list[Publicacion]:
+        return await self.repo.list_activas(
+            skip=skip,
+            limit=limit,
+            categoria_id=categoria_id,
+            busqueda=busqueda,
+            organizacion_id=organizacion_id,
+        )
 
-    async def listar_por_usuario(self, usuario_id: int) -> List[Publicacion]:
+    async def listar_por_usuario(self, usuario_id: int) -> list[Publicacion]:
         return await self.repo.list_by_usuario(usuario_id)
 
     async def actualizar_publicacion(
@@ -98,9 +131,16 @@ class PublicacionService:
             raise PermissionError("No tienes permiso para editar esta publicación")
 
         datos_limpios = dict(datos)
-        if "titulo" in datos_limpios and datos_limpios["titulo"]:
+        if datos_limpios.get("isbn"):
+            validar_isbn(datos_limpios["isbn"])
+
+        if datos_limpios.get("tipo_transaccion"):
+            if datos_limpios["tipo_transaccion"] not in ("trueque", "prestamo", "donacion"):
+                raise ValueError("Tipo de transacción inválido.")
+
+        if datos_limpios.get("titulo"):
             datos_limpios["titulo"] = await self._moderar_campo(str(datos_limpios["titulo"]).strip(), "titulo", usuario_id)
-        if "descripcion" in datos_limpios and datos_limpios["descripcion"]:
+        if datos_limpios.get("descripcion"):
             datos_limpios["descripcion"] = await self._moderar_campo(str(datos_limpios["descripcion"]), "descripcion", usuario_id)
 
         for campo, valor in datos_limpios.items():

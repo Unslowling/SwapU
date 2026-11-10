@@ -1,11 +1,25 @@
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from backend_estudiantil.adapters.db.sqlalchemy_user_repository import SQLAlchemyUserRepository
+import os
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
+
+from backend_estudiantil.adapters.db import AuditoriaLogORM, get_session_factory
+from backend_estudiantil.adapters.db.sqlalchemy_user_repository import (
+    SQLAlchemyUserRepository,
+)
 from backend_estudiantil.domain.services.user_service import UserService
-from backend_estudiantil.schemas.user import UserCreate, UserRead, UserUpdate
-from backend_estudiantil.ports.repositories.user_repository import UserRepository
 from backend_estudiantil.infrastructure.security import get_current_user
+from backend_estudiantil.ports.repositories.user_repository import UserRepository
+from backend_estudiantil.schemas.user import (
+    RechazoCarnetRequest,
+    UserCreate,
+    UserRead,
+    UserUpdate,
+)
+
+CARNET_STORAGE_DIR = Path("./storage/carnets")
 
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
 
@@ -15,7 +29,32 @@ def get_user_repository() -> UserRepository:
 def get_user_service(repo: UserRepository = Depends(get_user_repository)) -> UserService:
     return UserService(repo)
 
-def _user_to_read(user) -> UserRead:
+def _user_to_read(user, public: bool = False, reputacion: dict | None = None) -> UserRead:
+    verificado = getattr(user, "verificado_comunidad", False)
+    # Exponer universidad solo si está verificado si se consulta el perfil público
+    universidad = user.universidad if (verificado or not public) else None
+
+    # Estado del carné
+    carnet_estado = getattr(user, "carnet_estado", None)
+    if verificado:
+        carnet_estado = "verificado"
+    elif not carnet_estado:
+        if getattr(user, "carnet_path", None):
+            carnet_estado = "en_revision"
+        else:
+            carnet_estado = "sin_verificar"
+
+    reputacion_nivel = "nuevo"
+    reputacion_promedio = None
+    if reputacion:
+        reputacion_nivel = reputacion.get("nivel", "nuevo")
+        reputacion_promedio = reputacion.get("promedio_bayesiano") or reputacion.get("promedio_estrellas")
+
+    fin_suspension_str = None
+    fin_susp = getattr(user, "fin_suspension", None)
+    if fin_susp:
+        fin_suspension_str = fin_susp.isoformat() if hasattr(fin_susp, "isoformat") else str(fin_susp)
+
     return UserRead(
         id=str(user.id),
         email=user.correo_institucional,
@@ -24,14 +63,44 @@ def _user_to_read(user) -> UserRead:
         is_active=user.is_active,
         telefono=user.telefono,
         carrera=user.programa_area,
-        universidad=user.universidad,
+        facultad=getattr(user, "facultad", None),
+        universidad=universidad,
         semestre=getattr(user, "semestre", None),
         foto_url=getattr(user, "foto_url", None),
-        verificado_comunidad=getattr(user, "verificado_comunidad", False),
+        verificado_comunidad=verificado,
+        insignia_estudiante_verificado=bool(verificado),
+        carnet_estado=carnet_estado,
+        carnet_rechazo_motivo=getattr(user, "carnet_rechazo_motivo", None),
         perfil_completo=getattr(user, "perfil_completo", False),
+        reputacion_nivel=reputacion_nivel,
+        reputacion_promedio=reputacion_promedio,
+        organizacion_id=getattr(user, "organizacion_id", None),
+        estado_cuenta=getattr(user, "estado_cuenta", "activo"),
+        fin_suspension=fin_suspension_str,
+        motivo_sancion=getattr(user, "motivo_sancion", None),
         created_at=user.fecha_registro.isoformat() if hasattr(user.fecha_registro, "isoformat") else str(user.fecha_registro),
         updated_at=user.fecha_registro.isoformat() if hasattr(user.fecha_registro, "isoformat") else str(user.fecha_registro),
     )
+
+
+async def _user_to_read_async(user, public: bool = False) -> UserRead:
+    reputacion = None
+    try:
+        from backend_estudiantil.adapters.db.sqlalchemy_calificacion_repository import (
+            SQLAlchemyCalificacionRepository,
+        )
+        from backend_estudiantil.adapters.db.sqlalchemy_trueque_repository import (
+            SQLAlchemyTruequeRepository,
+        )
+        from backend_estudiantil.domain.services.calificacion_service import (
+            CalificacionService,
+        )
+        calif_svc = CalificacionService(SQLAlchemyCalificacionRepository(), SQLAlchemyTruequeRepository())
+        reputacion = await calif_svc.obtener_reputacion_usuario(int(user.id))
+    except Exception:
+        pass
+    return _user_to_read(user, public=public, reputacion=reputacion)
+
 
 # ------------------------------------------------------------------------------
 # ENDPOINTS DE PERFIL DEL ESTUDIANTE / USUARIO ACTUAL (/usuarios/me)
@@ -44,7 +113,7 @@ async def get_my_profile(
     """Consulta el perfil del usuario/estudiante autenticado."""
     try:
         user = await service.get_user(current_user["id"])
-        return _user_to_read(user)
+        return await _user_to_read_async(user)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -64,7 +133,7 @@ async def update_my_profile(
 # ------------------------------------------------------------------------------
 # CRUD GENERAL DE USUARIOS
 # ------------------------------------------------------------------------------
-@router.get("/", response_model=List[UserRead])
+@router.get("/", response_model=list[UserRead])
 async def list_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
@@ -96,11 +165,26 @@ async def get_user(
     service: UserService = Depends(get_user_service),
     current_user: dict = Depends(get_current_user),
 ):
-    """Obtiene el detalle de un usuario por su ID."""
+    """Obtiene el detalle de un usuario por su ID. Oculta universidad si es perfil público no verificado."""
     try:
         user = await service.get_user(user_id)
-        return _user_to_read(user)
-    except ValueError as e:
+        is_own = str(current_user["id"]) == str(user_id)
+        is_staff = current_user.get("role") in ("admin", "administrador", "moderador")
+        return await _user_to_read_async(user, public=not (is_own or is_staff))
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+
+
+@router.get("/{user_id}/perfil-publico", response_model=UserRead, summary="Perfil público del estudiante")
+async def get_public_profile(
+    user_id: str,
+    service: UserService = Depends(get_user_service),
+):
+    """Consulta el perfil público de un usuario. Solo expone la universidad si está verificado."""
+    try:
+        user = await service.get_user(user_id)
+        return await _user_to_read_async(user, public=True)
+    except ValueError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
 
 @router.put("/{user_id}", response_model=UserRead)
@@ -130,7 +214,7 @@ async def delete_user(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permisos insuficientes")
     try:
         await service.delete_user(user_id)
-        return None
+        return
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -138,14 +222,6 @@ async def delete_user(
 # ------------------------------------------------------------------------------
 # VERIFICACIÓN MANUAL DE COMUNIDAD (CARNÉ ESTUDIANTIL)
 # ------------------------------------------------------------------------------
-import os
-import uuid
-from pathlib import Path
-from fastapi import File, UploadFile
-from fastapi.responses import FileResponse
-from backend_estudiantil.adapters.db import AuditoriaLogORM, get_session_factory
-
-CARNET_STORAGE_DIR = Path("./storage/carnets")
 
 
 @router.post("/me/solicitar-verificacion", summary="Subir carné para solicitar verificación manual")
@@ -160,18 +236,23 @@ async def solicitar_verificacion_comunidad(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     CARNET_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-    ext = Path(carnet.filename or "carnet.jpg").suffix or ".jpg"
-    filename = f"carnet_{user.id}_{uuid.uuid4().hex[:8]}{ext}"
-    dest_path = CARNET_STORAGE_DIR / filename
-
     content = await carnet.read()
-    if len(content) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="El archivo excede el tamaño máximo permitido (10 MB)")
+
+    from backend_estudiantil.infrastructure.file_upload_security import (
+        generar_nombre_seguro,
+        validar_imagen_segura,
+        validar_ruta_segura,
+    )
+    ext = validar_imagen_segura(content, max_bytes=10 * 1024 * 1024)
+    filename = generar_nombre_seguro(f"carnet_{user.id}", ext)
+    dest_path = validar_ruta_segura(CARNET_STORAGE_DIR, CARNET_STORAGE_DIR / filename)
 
     with open(dest_path, "wb") as f:
         f.write(content)
 
     user.carnet_path = str(dest_path).replace("\\", "/")
+    user.carnet_estado = "en_revision"
+    user.carnet_rechazo_motivo = None
     await service.repo.update(user)
 
     # Registrar evento de auditoría
@@ -196,6 +277,7 @@ async def solicitar_verificacion_comunidad(
     return {
         "msg": "Carné recibido exitosamente. Tu solicitud está en cola de revisión por el equipo de moderación.",
         "verificado_comunidad": user.verificado_comunidad,
+        "carnet_estado": "en_revision",
     }
 
 
@@ -219,7 +301,7 @@ async def obtener_carnet(
     return FileResponse(user.carnet_path)
 
 
-@router.get("/verificaciones/pendientes", response_model=List[UserRead], summary="Listar solicitudes pendientes de carné")
+@router.get("/verificaciones/pendientes", response_model=list[UserRead], summary="Listar solicitudes pendientes de carné")
 async def listar_verificaciones_pendientes(
     current_user: dict = Depends(get_current_user),
     service: UserService = Depends(get_user_service),
@@ -229,7 +311,7 @@ async def listar_verificaciones_pendientes(
         raise HTTPException(status_code=403, detail="Permisos insuficientes de moderación")
 
     users = await service.get_users(skip=0, limit=100)
-    pendientes = [u for u in users if getattr(u, "carnet_path", None) and not u.verificado_comunidad]
+    pendientes = [u for u in users if (getattr(u, "carnet_path", None) or getattr(u, "carnet_estado", None) == "en_revision") and not u.verificado_comunidad]
     return [_user_to_read(u) for u in pendientes]
 
 
@@ -239,12 +321,22 @@ async def aprobar_verificacion(
     current_user: dict = Depends(get_current_user),
     service: UserService = Depends(get_user_service),
 ):
-    """Aprueba la verificación de comunidad de un usuario tras revisar su carné."""
+    """Aprueba la verificación de comunidad de un usuario tras revisar su carné y elimina el archivo."""
     if current_user.get("role") not in ("admin", "administrador", "moderador"):
         raise HTTPException(status_code=403, detail="Permisos insuficientes de moderación")
 
     user = await service.get_user(user_id)
+    # El carné solo lo ve moderación y se elimina al terminar la revisión
+    if user.carnet_path and os.path.exists(user.carnet_path):
+        try:
+            os.remove(user.carnet_path)
+        except OSError:
+            pass
+
+    user.carnet_path = None
     user.verificado_comunidad = True
+    user.carnet_estado = "verificado"
+    user.carnet_rechazo_motivo = None
     actualizado = await service.repo.update(user)
 
     # Registrar en auditoría
@@ -272,15 +364,30 @@ async def aprobar_verificacion(
 @router.post("/{user_id}/rechazar-verificacion", response_model=UserRead, summary="Rechazar verificación de carné")
 async def rechazar_verificacion(
     user_id: str,
+    payload: RechazoCarnetRequest | None = None,
     current_user: dict = Depends(get_current_user),
     service: UserService = Depends(get_user_service),
 ):
-    """Rechaza la verificación de carné de un estudiante."""
+    """Rechaza la verificación de carné de un estudiante y elimina el archivo de carné."""
     if current_user.get("role") not in ("admin", "administrador", "moderador"):
         raise HTTPException(status_code=403, detail="Permisos insuficientes de moderación")
 
     user = await service.get_user(user_id)
+    # El carné solo lo ve moderación y se elimina al terminar la revisión
+    if user.carnet_path and os.path.exists(user.carnet_path):
+        try:
+            os.remove(user.carnet_path)
+        except OSError:
+            pass
+
+    user.carnet_path = None
     user.verificado_comunidad = False
+    user.carnet_estado = "rechazado"
+    user.carnet_rechazo_motivo = (
+        payload.motivo
+        if payload and payload.motivo
+        else "Documento no legible o no coincide con los datos del usuario"
+    )
     actualizado = await service.repo.update(user)
 
     factory = get_session_factory()
@@ -296,7 +403,7 @@ async def rechazar_verificacion(
             endpoint=f"/usuarios/{user_id}/rechazar-verificacion",
             estado_http=200,
             exito=True,
-            detalle=f"Verificación de comunidad rechazada por {current_user.get('role')}",
+            detalle=f"Verificación de comunidad rechazada por {current_user.get('role')}. Motivo: {user.carnet_rechazo_motivo}",
         )
         session.add(audit)
         await session.commit()

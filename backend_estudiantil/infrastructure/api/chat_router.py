@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from typing import List, Optional, Dict
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -18,10 +18,24 @@ from redis.exceptions import RedisError
 from sqlalchemy.future import select
 
 from backend_estudiantil.adapters.db import (
-    MensajeORM, TruequeORM, UserORM, PublicacionORM, MatchORM, get_session_factory
+    MatchORM,
+    MensajeORM,
+    PublicacionORM,
+    TruequeORM,
+    UserORM,
+    get_session_factory,
 )
 from backend_estudiantil.adapters.security.jwt_authenticator import JWTAuthenticator
 from backend_estudiantil.config.settings import settings
+from backend_estudiantil.domain.services.moderacion_contenido_service import (
+    ModeracionContenidoService,
+)
+from backend_estudiantil.infrastructure.moderacion_audit_helper import (
+    registrar_auditoria_infraccion,
+)
+from backend_estudiantil.infrastructure.redis_circuit_breaker import (
+    chat_redis_circuit_breaker,
+)
 from backend_estudiantil.infrastructure.security import get_current_user
 
 router = APIRouter(prefix="/trueques", tags=["chat"])
@@ -35,11 +49,11 @@ logger = logging.getLogger(__name__)
 class ConnectionManager:
     def __init__(self):
         # trueque_id -> {WebSocket: {"user_id": int, "user_name": str}}
-        self.active_connections: Dict[int, Dict[WebSocket, dict]] = {}
-        self._subscriptions: Dict[int, tuple[object, asyncio.Task]] = {}
+        self.active_connections: dict[int, dict[WebSocket, dict]] = {}
+        self._subscriptions: dict[int, tuple[object, asyncio.Task]] = {}
         self._lock = asyncio.Lock()
-        self._redis: Optional[Redis] = None
-        self._publisher: Optional[Redis] = None
+        self._redis: Redis | None = None
+        self._publisher: Redis | None = None
 
     async def connect(self, websocket: WebSocket, trueque_id: int, user_id: int, user_name: str):
         await websocket.accept(subprotocol="bearer")
@@ -53,22 +67,29 @@ class ConnectionManager:
             online_users = list({info["user_id"] for info in self.active_connections[trueque_id].values()})
 
             if settings.REDIS_URL and trueque_id not in self._subscriptions:
-                if self._redis is None:
-                    self._redis = Redis.from_url(
-                        settings.REDIS_URL, decode_responses=True
-                    )
-                pubsub = self._redis.pubsub()
-                try:
-                    await pubsub.subscribe(self._channel(trueque_id))
-                except Exception:
-                    await pubsub.aclose()
-                    if websocket in self.active_connections[trueque_id]:
-                        del self.active_connections[trueque_id][websocket]
-                    if not self.active_connections[trueque_id]:
-                        del self.active_connections[trueque_id]
-                    raise
-                task = asyncio.create_task(self._listen(trueque_id, pubsub))
-                self._subscriptions[trueque_id] = (pubsub, task)
+                if not chat_redis_circuit_breaker.is_open:
+                    try:
+                        if self._redis is None:
+                            self._redis = Redis.from_url(
+                                settings.REDIS_URL,
+                                decode_responses=True,
+                                socket_connect_timeout=0.5,
+                                socket_timeout=0.5,
+                            )
+                        pubsub = self._redis.pubsub()
+                        await asyncio.wait_for(
+                            pubsub.subscribe(self._channel(trueque_id)),
+                            timeout=0.8,
+                        )
+                        task = asyncio.create_task(self._listen(trueque_id, pubsub))
+                        self._subscriptions[trueque_id] = (pubsub, task)
+                        chat_redis_circuit_breaker.record_success()
+                    except Exception as e:
+                        chat_redis_circuit_breaker.record_failure(e)
+                        self._redis = None
+                        logger.warning("No se pudo conectar a Redis para chat pubsub (%s). Operando en modo memoria local.", e)
+                else:
+                    logger.debug("Redis circuit breaker ABIERTO para chat pubsub trueque %s. Usando memoria local.", trueque_id)
 
         # Enviar estado actual de la sala al recién conectado
         try:
@@ -155,14 +176,28 @@ class ConnectionManager:
             async with self._lock:
                 self._subscriptions.pop(trueque_id, None)
 
-    async def broadcast(self, message: dict, trueque_id: int, exclude_socket: Optional[WebSocket] = None):
-        if settings.REDIS_URL:
-            if self._publisher is None:
-                self._publisher = Redis.from_url(settings.REDIS_URL, decode_responses=True)
-            await self._publisher.publish(
-                self._channel(trueque_id), json.dumps(message, ensure_ascii=False)
-            )
-            return
+    async def broadcast(self, message: dict, trueque_id: int, exclude_socket: WebSocket | None = None):
+        if settings.REDIS_URL and not chat_redis_circuit_breaker.is_open:
+            try:
+                if self._publisher is None:
+                    self._publisher = Redis.from_url(
+                        settings.REDIS_URL,
+                        decode_responses=True,
+                        socket_connect_timeout=0.5,
+                        socket_timeout=0.5,
+                    )
+                await asyncio.wait_for(
+                    self._publisher.publish(
+                        self._channel(trueque_id), json.dumps(message, ensure_ascii=False)
+                    ),
+                    timeout=0.8,
+                )
+                chat_redis_circuit_breaker.record_success()
+                return
+            except Exception as e:
+                chat_redis_circuit_breaker.record_failure(e)
+                self._publisher = None
+                logger.warning("Redis no disponible en chat broadcast (%s). Usando fallback local.", e)
 
         connections = self.active_connections.get(trueque_id, {})
         for connection in tuple(connections.keys()):
@@ -170,7 +205,7 @@ class ConnectionManager:
                 continue
             try:
                 await connection.send_json(message)
-            except (WebSocketDisconnect, RuntimeError, OSError):
+            except Exception:
                 await self.disconnect(connection, trueque_id)
 
 
@@ -197,10 +232,10 @@ class MensajeRead(BaseModel):
     id: int
     trueque_id: int
     remitente_id: int
-    remitente_nombre: Optional[str] = None
+    remitente_nombre: str | None = None
     contenido: str
     fecha_envio: datetime
-    realtime_delivery: Optional[str] = None
+    realtime_delivery: str | None = None
 
 
 class TruequeInfoRead(BaseModel):
@@ -208,14 +243,14 @@ class TruequeInfoRead(BaseModel):
     id: int
     estado: str
     usuario_propone_id: int
-    usuario_propone_nombre: Optional[str] = None
+    usuario_propone_nombre: str | None = None
     usuario_recibe_id: int
-    usuario_recibe_nombre: Optional[str] = None
-    libro_propone: Optional[str] = None
-    libro_recibe: Optional[str] = None
+    usuario_recibe_nombre: str | None = None
+    libro_propone: str | None = None
+    libro_recibe: str | None = None
     fecha_propuesta: datetime
-    fecha_confirmacion: Optional[datetime] = None
-    fecha_completado: Optional[datetime] = None
+    fecha_confirmacion: datetime | None = None
+    fecha_completado: datetime | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -304,13 +339,13 @@ async def obtener_info_trueque(
 
 @router.get(
     "/{trueque_id}/mensajes",
-    response_model=List[MensajeRead],
+    response_model=list[MensajeRead],
     summary="Listar mensajes de chat del trueque",
 )
 async def listar_mensajes(
     trueque_id: int,
     limit: int = Query(50, ge=1, le=100),
-    before_id: Optional[int] = Query(None, gt=0),
+    before_id: int | None = Query(None, gt=0),
     current_user: dict = Depends(get_current_user),
 ):
     """Retorna una página de mensajes, empezando por los más recientes."""
@@ -352,9 +387,6 @@ async def listar_mensajes(
         return mensajes
 
 
-from backend_estudiantil.domain.services.moderacion_contenido_service import ModeracionContenidoService
-from backend_estudiantil.infrastructure.moderacion_audit_helper import registrar_auditoria_infraccion
-
 _moderacion_service = ModeracionContenidoService()
 
 
@@ -366,9 +398,10 @@ async def procesar_y_guardar_mensaje_chat(
     contenido_crudo: str,
     es_websocket: bool = False,
     ip_origen: str = "127.0.0.1",
-    user_email: Optional[str] = None,
-    user_role: Optional[str] = None,
-) -> tuple[Optional[MensajeRead], Optional[str]]:
+    user_email: str | None = None,
+    user_role: str | None = None,
+    difundir: bool = True,
+) -> tuple[MensajeRead | None, str | None]:
     """Procesa, modera y persiste un mensaje de chat en UN solo punto central
     reutilizado tanto por el endpoint HTTP REST como por el WebSocket.
     """
@@ -423,18 +456,19 @@ async def procesar_y_guardar_mensaje_chat(
         fecha_envio=nuevo_mensaje.fecha_envio,
     )
 
-    # Difundir en tiempo real via WebSocket / Redis
-    msg_dict = response_msg.model_dump()
-    msg_dict["fecha_envio"] = msg_dict["fecha_envio"].isoformat()
-    msg_dict["type"] = "message"
-    try:
-        await manager.broadcast(msg_dict, trueque_id)
-    except RedisError:
-        logger.exception(
-            "El mensaje %s se guardó, pero no se pudo distribuir por Redis",
-            response_msg.id,
-        )
-        response_msg.realtime_delivery = "unavailable"
+    # Difundir en tiempo real via WebSocket / Redis si fue solicitado
+    if difundir:
+        msg_dict = response_msg.model_dump()
+        msg_dict["fecha_envio"] = msg_dict["fecha_envio"].isoformat()
+        msg_dict["type"] = "message"
+        try:
+            await manager.broadcast(msg_dict, trueque_id)
+        except RedisError:
+            logger.exception(
+                "El mensaje %s se guardó, pero no se pudo distribuir por Redis",
+                response_msg.id,
+            )
+            response_msg.realtime_delivery = "unavailable"
 
     return response_msg, None
 
@@ -454,7 +488,21 @@ async def enviar_mensaje(
     factory = get_session_factory()
     user_id = int(current_user["id"])
 
+    # 1. Operaciones de BD dentro de sesión corta para liberar la conexión de inmediato
     async with factory() as session:
+        result = await session.execute(select(UserORM).where(UserORM.id == user_id))
+        user_obj = result.scalar_one_or_none()
+        from backend_estudiantil.domain.services.moderacion_sanciones_service import (
+            usuario_puede_operar,
+        )
+        res_op = usuario_puede_operar(user_obj)
+        if not res_op.puede_operar:
+            fin_str = f" Fecha de fin: {res_op.fecha_fin.isoformat()}." if res_op.fecha_fin else ""
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Tu cuenta se encuentra {res_op.estado_cuenta}. Motivo: {res_op.motivo}.{fin_str}",
+            )
+
         nombre_completo = await _get_user_name(session, user_id)
         msg, error = await procesar_y_guardar_mensaje_chat(
             session=session,
@@ -465,10 +513,26 @@ async def enviar_mensaje(
             es_websocket=False,
             user_email=current_user.get("email"),
             user_role=current_user.get("role"),
+            difundir=False,  # Se difunde fuera del bloque de sesión para liberar conexiones en Postgres
         )
         if error:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error)
-        return msg
+
+    # 2. Difusión en tiempo real fuera del bloque de sesión de base de datos
+    if msg:
+        msg_dict = msg.model_dump()
+        msg_dict["fecha_envio"] = msg_dict["fecha_envio"].isoformat()
+        msg_dict["type"] = "message"
+        try:
+            await manager.broadcast(msg_dict, trueque_id)
+        except RedisError:
+            logger.exception(
+                "El mensaje %s se guardó, pero no se pudo distribuir por Redis",
+                msg.id,
+            )
+            msg.realtime_delivery = "unavailable"
+
+    return msg
 
 
 @router.websocket("/{trueque_id}/ws")
@@ -501,8 +565,18 @@ async def websocket_endpoint(websocket: WebSocket, trueque_id: int):
             return
         result = await session.execute(select(UserORM).where(UserORM.id == user_id))
         user_obj = result.scalar_one_or_none()
-        if user_obj is None or user_obj.estado_cuenta != "activo":
-            await websocket.close(code=4401)
+        from backend_estudiantil.domain.services.moderacion_sanciones_service import (
+            usuario_puede_operar,
+        )
+        res_op = usuario_puede_operar(user_obj)
+        if not res_op.puede_operar:
+            await websocket.accept(subprotocol="bearer")
+            fin_str = f" Fecha de fin: {res_op.fecha_fin.isoformat()}." if res_op.fecha_fin else ""
+            await websocket.send_json({
+                "type": "error",
+                "detail": f"Tu cuenta se encuentra {res_op.estado_cuenta}. Motivo: {res_op.motivo}.{fin_str}",
+            })
+            await websocket.close(code=4403)
             return
         if user_id not in (trueque.usuario_propone_id, trueque.usuario_recibe_id):
             await websocket.close(code=4403)
@@ -550,6 +624,20 @@ async def websocket_endpoint(websocket: WebSocket, trueque_id: int):
 
                 client_host = websocket.client.host if websocket.client else "127.0.0.1"
                 async with factory() as session:
+                    res_live = await session.execute(select(UserORM).where(UserORM.id == user_id))
+                    u_live = res_live.scalar_one_or_none()
+                    from backend_estudiantil.domain.services.moderacion_sanciones_service import (
+                        usuario_puede_operar,
+                    )
+                    res_op = usuario_puede_operar(u_live)
+                    if not res_op.puede_operar:
+                        fin_str = f" Fecha de fin: {res_op.fecha_fin.isoformat()}." if res_op.fecha_fin else ""
+                        await websocket.send_json({
+                            "type": "error",
+                            "detail": f"Tu cuenta se encuentra {res_op.estado_cuenta}. Motivo: {res_op.motivo}.{fin_str}",
+                        })
+                        continue
+
                     msg, error = await procesar_y_guardar_mensaje_chat(
                         session=session,
                         trueque_id=trueque_id,

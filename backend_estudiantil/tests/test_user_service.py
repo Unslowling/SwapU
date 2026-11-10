@@ -1,7 +1,10 @@
 import pytest
-from backend_estudiantil.domain.services.user_service import UserService
+
 from backend_estudiantil.domain.models.user import User
+from backend_estudiantil.domain.services.user_service import UserService
 from backend_estudiantil.schemas.user import UserCreate, UserUpdate
+
+pytestmark = pytest.mark.unit
 
 class InMemoryUserRepository:
     """Repositorio en memoria para pruebas unitarias del servicio de usuarios."""

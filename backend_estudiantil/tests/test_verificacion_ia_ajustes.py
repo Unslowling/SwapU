@@ -1,9 +1,11 @@
-import pytest
 from unittest.mock import patch
+import pytest
 from backend_estudiantil.config.settings import settings
 from backend_estudiantil.infrastructure.verificacion_ia import (
     _clasificar_imagen, verificar_imagen, precalentar
 )
+
+pytestmark = pytest.mark.unit
 
 
 def test_clasificar_imagen_falla_cerrado_si_modelo_no_disponible():
