@@ -10,6 +10,7 @@ Create Date: 2026-10-28
 """
 
 from alembic import op
+from sqlalchemy.engine.reflection import Inspector
 
 # revision identifiers, used by Alembic.
 revision = "a1b2c3d4e5f6"
@@ -19,28 +20,30 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # 1. Eliminar la FK rota que apuntaba a 'chats'
-    op.drop_constraint("mensajes_chat_id_fkey", "mensajes", type_="foreignkey")
+    bind = op.get_bind()
+    inspector = Inspector.from_engine(bind)
+    fk_names = {fk["name"] for fk in inspector.get_foreign_keys("mensajes")}
 
-    # 2. Crear la FK correcta que apunta a 'trueques'
-    op.create_foreign_key(
-        "mensajes_trueque_id_fkey",
-        "mensajes",
-        "trueques",
-        ["trueque_id"],
-        ["id"],
-        ondelete="CASCADE",
-    )
+    # 1. Eliminar la FK rota que apuntaba a 'chats' sólo si existe
+    if "mensajes_chat_id_fkey" in fk_names:
+        op.drop_constraint("mensajes_chat_id_fkey", "mensajes", type_="foreignkey")
+
+    # 2. Crear la FK correcta que apunta a 'trueques' si no existe ya
+    if "mensajes_trueque_id_fkey" not in fk_names:
+        op.create_foreign_key(
+            "mensajes_trueque_id_fkey",
+            "mensajes",
+            "trueques",
+            ["trueque_id"],
+            ["id"],
+            ondelete="CASCADE",
+        )
 
 
 def downgrade() -> None:
-    # Revertir: eliminar FK correcta y restaurar la rota (solo para rollback)
-    op.drop_constraint("mensajes_trueque_id_fkey", "mensajes", type_="foreignkey")
-    op.create_foreign_key(
-        "mensajes_chat_id_fkey",
-        "mensajes",
-        "chats",
-        ["trueque_id"],
-        ["id"],
-        ondelete="CASCADE",
-    )
+    bind = op.get_bind()
+    inspector = Inspector.from_engine(bind)
+    fk_names = {fk["name"] for fk in inspector.get_foreign_keys("mensajes")}
+
+    if "mensajes_trueque_id_fkey" in fk_names:
+        op.drop_constraint("mensajes_trueque_id_fkey", "mensajes", type_="foreignkey")
