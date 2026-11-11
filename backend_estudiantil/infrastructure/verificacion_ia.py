@@ -322,6 +322,14 @@ def precalentar():
     Llamar desde el lifespan de FastAPI para evitar latencia en la primera petición.
     """
     logger.info("Precalentando modelos de IA...")
-    _cargar_modelo()
-    _cargar_ocr()
-    logger.info("Modelos de IA listos")
+    modelo, _, _, _ = _cargar_modelo()
+    ocr = _cargar_ocr()
+    if modelo is None:
+        logger.warning(
+            "Verificación automática con IA NO disponible (sin modelo de clasificación). "
+            "Las publicaciones pasarán a revisión humana."
+        )
+    else:
+        logger.info("Modelo de clasificación de IA listo")
+    if ocr is None:
+        logger.warning("OCR no disponible: la lectura de ISBN en imágenes requerirá revisión humana.")

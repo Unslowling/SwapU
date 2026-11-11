@@ -6,9 +6,12 @@
 class ApiService {
     constructor() {
         // Detectar si se está sirviendo desde FastAPI o desde servidor estático / file
-        this.baseUrl = window.location.origin.includes(":8000") 
-            ? window.location.origin 
-            : "http://localhost:8000";
+        // Si la página la sirve el propio FastAPI (mismo origen), la API es ese mismo origen.
+        // Solo se usa localhost:8000 cuando se abre como archivo o desde un servidor estático de desarrollo.
+        const origen = window.location.origin;
+        const sirvePorHttp = /^https?:/.test(origen);
+        const esServidorDesarrollo = ["3000", "5500"].includes(window.location.port);
+        this.baseUrl = sirvePorHttp && !esServidorDesarrollo ? origen : "http://localhost:8000";
         this.tokenKey = "campus_swap_token";
         this.userKey = "campus_swap_current_user";
         this.storageKeyTrades = "campus_swap_trades";
@@ -21,35 +24,19 @@ class ApiService {
     }
 
     _initLocalStore() {
-        const versionKey = "swapu_v14_usbmed_clean_books";
-        if (!localStorage.getItem(versionKey)) {
-            localStorage.setItem(this.storageKeyUsers, JSON.stringify(MOCK_USUARIOS));
-            localStorage.setItem(this.storageKeyBooks, JSON.stringify(MOCK_PUBLICACIONES));
-            localStorage.setItem(this.storageKeyTrades, JSON.stringify(MOCK_TRUEQUES));
-            localStorage.setItem(this.storageKeyMessages, JSON.stringify(MOCK_MENSAJES));
-            localStorage.setItem(this.storageKeyReviews, JSON.stringify(MOCK_RESENAS));
-            localStorage.setItem(versionKey, "true");
-        } else {
-            // Migrar / sanear libros existentes que tengan URLs de openlibrary o portadas vacias
-            try {
-                const raw = localStorage.getItem(this.storageKeyBooks);
-                if (raw) {
-                    const books = JSON.parse(raw);
-                    let updated = false;
-                    books.forEach(b => {
-                        if (!b.portada || b.portada.includes("openlibrary.org")) {
-                            b.portada = this.getThematicCover(b.titulo, b.categoria_id);
-                            b.portada_fallback = b.portada;
-                            updated = true;
-                        }
-                    });
-                    if (updated) {
-                        localStorage.setItem(this.storageKeyBooks, JSON.stringify(books));
-                    }
-                }
-            } catch (e) {
-                console.error("Error migrando portadas:", e);
+        // El navegador ya no siembra datos simulados (usuarios, libros, trueques, mensajes, reseñas).
+        // Todos los datos vienen del backend/PostgreSQL. Una sola vez se borran los datos
+        // simulados que versiones anteriores dejaron en localStorage.
+        const versionKey = "swapu_v15_sin_datos_simulados";
+        try {
+            if (!localStorage.getItem(versionKey)) {
+                [this.storageKeyUsers, this.storageKeyBooks, this.storageKeyTrades,
+                 this.storageKeyMessages, this.storageKeyReviews]
+                    .forEach(clave => localStorage.removeItem(clave));
+                localStorage.setItem(versionKey, "true");
             }
+        } catch (e) {
+            console.warn("No se pudo limpiar el almacenamiento local:", e);
         }
     }
 
@@ -321,20 +308,10 @@ class ApiService {
                 return fresh;
             }
         } catch (e) {
-            // Fallback local si el backend no está disponible
+            // Sin guardado local: el perfil solo cambia si PostgreSQL lo confirma.
+            throw e;
         }
-        const current = this.getCurrentUser();
-        const merged = { ...current, ...updates };
-        this.setCurrentUser(merged);
-
-        // Actualizar en lista local
-        const users = JSON.parse(localStorage.getItem(this.storageKeyUsers) || "[]");
-        const idx = users.findIndex(u => String(u.id) === String(current.id));
-        if (idx !== -1) {
-            users[idx] = { ...users[idx], ...updates };
-            localStorage.setItem(this.storageKeyUsers, JSON.stringify(users));
-        }
-        return merged;
+        throw new Error("La respuesta del servidor no contiene el perfil actualizado.");
     }
 
     async uploadCarnet(formData) {
@@ -357,23 +334,13 @@ class ApiService {
         try {
             return await this._fetch("/usuarios/");
         } catch (e) {
-            return JSON.parse(localStorage.getItem(this.storageKeyUsers) || "[]");
+            throw e;
         }
     }
 
     async promoteUser(userId) {
-        try {
-            return await this._fetch(`/admin/users/${userId}/promote`, { method: "POST" });
-        } catch (e) {
-            const users = JSON.parse(localStorage.getItem(this.storageKeyUsers) || "[]");
-            const user = users.find(u => String(u.id) === String(userId));
-            if (user) {
-                user.role = "moderador";
-                localStorage.setItem(this.storageKeyUsers, JSON.stringify(users));
-                return { msg: `Usuario ${userId} promovido a moderador` };
-            }
-            throw e;
-        }
+        // Sin respaldo local: el ascenso solo se aplica si el backend lo confirma.
+        return await this._fetch(`/admin/users/${userId}/promote`, { method: "POST" });
     }
 
     // -------------------------------------------------------------------------
@@ -477,24 +444,10 @@ class ApiService {
             if (params.busqueda) query.set("busqueda", params.busqueda);
             if (params.categoria_id) query.set("categoria_id", params.categoria_id);
             const data = await this._fetch("/publicaciones/?" + query.toString());
-            if (this.getToken()) return (data || []).map(b => this._enrichBook(b));
-            if (data && data.length > 0) return data.map(b => this._enrichBook(b));
-            return JSON.parse(localStorage.getItem(this.storageKeyBooks) || "[]");
+            return (data || []).map(b => this._enrichBook(b));
         } catch (e) {
-            if (this.getToken()) throw e;
-            let books = JSON.parse(localStorage.getItem(this.storageKeyBooks) || "[]");
-            if (params.categoria_id) {
-                books = books.filter(b => b.categoria_id === parseInt(params.categoria_id));
-            }
-            if (params.busqueda) {
-                const q = params.busqueda.toLowerCase();
-                books = books.filter(b =>
-                    b.titulo.toLowerCase().includes(q) ||
-                    (b.autor && b.autor.toLowerCase().includes(q)) ||
-                    (b.libro_buscado && b.libro_buscado.toLowerCase().includes(q))
-                );
-            }
-            return books;
+            // Sin datos simulados: si el backend falla, el error se muestra al usuario.
+            throw e;
         }
     }
 
@@ -502,10 +455,7 @@ class ApiService {
         try {
             return await this._fetch("/publicaciones/mis-publicaciones");
         } catch (e) {
-            if (this.getToken()) throw e;
-            const user = this.getCurrentUser();
-            return JSON.parse(localStorage.getItem(this.storageKeyBooks) || "[]")
-                .filter(book => String(book.usuario_id) === String(user?.id));
+            throw e;
         }
     }
 
@@ -520,34 +470,8 @@ class ApiService {
                 body: JSON.stringify(bookData)
             });
         } catch (e) {
-            if (this.getToken()) throw e;
-            const books = JSON.parse(localStorage.getItem(this.storageKeyBooks) || "[]");
-            const user = this.getCurrentUser();
-            const newBook = {
-                id: Date.now(),
-                usuario_id: user.id,
-                usuario_nombre: user.name,
-                usuario_carrera: user.carrera,
-                usuario_universidad: user.universidad,
-                usuario_reputacion: user.reputacion?.promedio || 5.0,
-                usuario_avatar: user.avatar,
-                titulo: bookData.titulo,
-                autor: bookData.autor,
-                isbn: bookData.isbn || "N/A",
-                edicion: bookData.edicion || "1ra Edición",
-                categoria_id: parseInt(bookData.categoria_id) || 1,
-                categoria_nombre: MOCK_CATEGORIAS.find(c => c.id === parseInt(bookData.categoria_id))?.nombre || "General",
-                estado_libro: bookData.estado_libro || "Buen estado",
-                descripcion: bookData.descripcion || "",
-                libro_buscado: bookData.libro_buscado || "Cualquier texto afín",
-                estado_publicacion: "activa",
-                portada: bookData.portada || this.getThematicCover(bookData.titulo, parseInt(bookData.categoria_id)),
-                portada_fallback: this.getThematicCover(bookData.titulo, parseInt(bookData.categoria_id)),
-                fecha_publicacion: new Date().toISOString()
-            };
-            books.unshift(newBook);
-            localStorage.setItem(this.storageKeyBooks, JSON.stringify(books));
-            return newBook;
+            // Sin respaldo local: una publicación solo existe si PostgreSQL la confirmó.
+            throw e;
         }
     }
 
@@ -702,7 +626,6 @@ class ApiService {
     async getMatches() {
         try {
             const data = await this._fetch("/matches/mis-matches");
-            if (!this.getToken()) return data && data.length > 0 ? data : MOCK_MATCHES;
             const currentUserId = String(this.getCurrentUser()?.id);
             return await Promise.all(data.map(async match => {
                 const [origen, destino] = await Promise.all([
@@ -722,8 +645,7 @@ class ApiService {
                 };
             }));
         } catch (e) {
-            if (this.getToken()) throw e;
-            return MOCK_MATCHES;
+            throw e;
         }
     }
 
@@ -731,8 +653,7 @@ class ApiService {
         try {
             return await this._fetch(`/matches/buscar/${bookId}`, { method: "POST" });
         } catch (e) {
-            if (this.getToken()) throw e;
-            return MOCK_MATCHES.filter(m => m.publicacion_origen_id === parseInt(bookId) || true);
+            throw e;
         }
     }
 
@@ -743,24 +664,12 @@ class ApiService {
         try {
             const query = estado && estado !== "todos" ? `?estado=${estado}` : "";
             const data = await this._fetch(`/trueques/mis-trueques${query}`);
-            if (this.getToken()) {
-                return await Promise.all(data.map(async trade => ({
-                    ...trade,
-                    ...await this.getTradeInfo(trade.id)
-                })));
-            }
-            if (data && data.length > 0) return data;
-            return JSON.parse(localStorage.getItem(this.storageKeyTrades) || "[]");
+            return await Promise.all(data.map(async trade => ({
+                ...trade,
+                ...await this.getTradeInfo(trade.id)
+            })));
         } catch (e) {
-            if (this.getToken()) throw e;
-            let trades = JSON.parse(localStorage.getItem(this.storageKeyTrades) || "[]");
-            const current = this.getCurrentUser();
-            // Filtrar trueques donde participa el usuario actual
-            trades = trades.filter(t => String(t.usuario_propone_id) === String(current.id) || String(t.usuario_recibe_id) === String(current.id));
-            if (estado && estado !== "todos") {
-                trades = trades.filter(t => t.estado === estado);
-            }
-            return trades;
+            throw e;
         }
     }
 
@@ -772,40 +681,8 @@ class ApiService {
             });
             return trade;
         } catch (e) {
-            if (this.getToken()) throw e;
-            const trades = JSON.parse(localStorage.getItem(this.storageKeyTrades) || "[]");
-            const user = this.getCurrentUser();
-            const newTrade = {
-                id: Date.now(),
-                match_id: tradeData.match_id || null,
-                usuario_propone_id: user.id,
-                usuario_propone_nombre: user.name,
-                usuario_recibe_id: tradeData.usuario_recibe_id,
-                usuario_recibe_nombre: tradeData.usuario_recibe_nombre || "Estudiante",
-                libro_propone: tradeData.libro_propone || "Mi libro ofrecido",
-                libro_recibe: tradeData.libro_recibe || "Libro solicitado",
-                estado: "propuesto",
-                fecha_propuesta: new Date().toISOString(),
-                fecha_confirmacion: null,
-                fecha_completado: null,
-                lugar_entrega: tradeData.lugar_entrega || "Campus Universitario"
-            };
-            trades.unshift(newTrade);
-            localStorage.setItem(this.storageKeyTrades, JSON.stringify(trades));
-
-            // Iniciar chat para este trade
-            const messages = JSON.parse(localStorage.getItem(this.storageKeyMessages) || "{}");
-            messages[newTrade.id] = [
-                {
-                    id: Date.now(),
-                    remitente_id: user.id,
-                    remitente_nombre: user.name,
-                    contenido: `¡Hola! He enviado una propuesta para intercambiar "${newTrade.libro_propone}" por "${newTrade.libro_recibe}". ¿Coordinamos por aquí?`,
-                    fecha_envio: new Date().toISOString()
-                }
-            ];
-            localStorage.setItem(this.storageKeyMessages, JSON.stringify(messages));
-            return newTrade;
+            // Sin respaldo local: el trueque solo existe si el backend lo confirmó.
+            throw e;
         }
     }
 
@@ -813,14 +690,6 @@ class ApiService {
         try {
             return await this._fetch(`/trueques/${tradeId}/confirmar`, { method: "POST" });
         } catch (e) {
-            const trades = JSON.parse(localStorage.getItem(this.storageKeyTrades) || "[]");
-            const t = trades.find(item => item.id === parseInt(tradeId));
-            if (t) {
-                t.estado = "confirmado";
-                t.fecha_confirmacion = new Date().toISOString();
-                localStorage.setItem(this.storageKeyTrades, JSON.stringify(trades));
-                return t;
-            }
             throw e;
         }
     }
@@ -829,14 +698,6 @@ class ApiService {
         try {
             return await this._fetch(`/trueques/${tradeId}/completar`, { method: "POST" });
         } catch (e) {
-            const trades = JSON.parse(localStorage.getItem(this.storageKeyTrades) || "[]");
-            const t = trades.find(item => item.id === parseInt(tradeId));
-            if (t) {
-                t.estado = "completado";
-                t.fecha_completado = new Date().toISOString();
-                localStorage.setItem(this.storageKeyTrades, JSON.stringify(trades));
-                return t;
-            }
             throw e;
         }
     }
@@ -845,13 +706,6 @@ class ApiService {
         try {
             return await this._fetch(`/trueques/${tradeId}/rechazar`, { method: "POST" });
         } catch (e) {
-            const trades = JSON.parse(localStorage.getItem(this.storageKeyTrades) || "[]");
-            const t = trades.find(item => item.id === parseInt(tradeId));
-            if (t) {
-                t.estado = "rechazado";
-                localStorage.setItem(this.storageKeyTrades, JSON.stringify(trades));
-                return t;
-            }
             throw e;
         }
     }
@@ -860,11 +714,7 @@ class ApiService {
         try {
             return await this._fetch(`/trueques/${tradeId}/info`);
         } catch (e) {
-            if (this.getToken()) throw e;
-            // Fallback: buscar en la lista local de trueques
-            const trades = JSON.parse(localStorage.getItem(this.storageKeyTrades) || "[]");
-            const t = trades.find(x => x.id === parseInt(tradeId));
-            return t || null;
+            throw e;
         }
     }
 
@@ -890,43 +740,14 @@ class ApiService {
                 body: JSON.stringify(ratingData)
             });
         } catch (e) {
-            const user = this.getCurrentUser();
-            const reviews = JSON.parse(localStorage.getItem(this.storageKeyReviews) || "[]");
-            const newReview = {
-                id: Date.now(),
-                trade_id: tradeId,
-                autor: user.name,
-                carrera: user.carrera,
-                estrellas: ratingData.estrellas,
-                fecha: "Hoy",
-                comentario: ratingData.resena
-            };
-            reviews.unshift(newReview);
-            localStorage.setItem(this.storageKeyReviews, JSON.stringify(reviews));
-
-            // Guardar en el trueque
-            const trades = JSON.parse(localStorage.getItem(this.storageKeyTrades) || "[]");
-            const t = trades.find(item => item.id === parseInt(tradeId));
-            if (t) {
-                t.calificacion = {
-                    estrellas: ratingData.estrellas,
-                    resena: ratingData.resena,
-                    fecha: new Date().toISOString().split("T")[0]
-                };
-                localStorage.setItem(this.storageKeyTrades, JSON.stringify(trades));
-            }
-            return newReview;
+            // Sin respaldo local: la calificación solo cuenta si PostgreSQL la guardó.
+            throw e;
         }
     }
 
     async getReviews() {
-        try {
-            const data = await this._fetch("/calificaciones/mis-calificaciones");
-            if (data && data.length > 0) return data;
-            return JSON.parse(localStorage.getItem(this.storageKeyReviews) || "[]");
-        } catch (e) {
-            return JSON.parse(localStorage.getItem(this.storageKeyReviews) || "[]");
-        }
+        // Sin respaldo local: las reseñas vienen solo del backend.
+        return await this._fetch("/calificaciones/mis-calificaciones");
     }
 
     async reportReview(reviewId, motivo = "Contenido inapropiado") {
@@ -936,8 +757,7 @@ class ApiService {
                 body: JSON.stringify({ motivo })
             });
         } catch (e) {
-            if (this.getToken()) throw e;
-            return { message: "Reporte registrado para revisión de moderación (modo local)" };
+            throw e;
         }
     }
 
@@ -950,9 +770,7 @@ class ApiService {
             if (beforeId) query.set("before_id", beforeId);
             return await this._fetch(`/trueques/${tradeId}/mensajes?${query}`);
         } catch (e) {
-            if (this.getToken()) throw e;
-            const messages = JSON.parse(localStorage.getItem(this.storageKeyMessages) || "{}");
-            return messages[tradeId] || [];
+            throw e;
         }
     }
 
@@ -963,28 +781,7 @@ class ApiService {
                 body: JSON.stringify({ contenido: text })
             });
         } catch (e) {
-            if (this.getToken()) throw e;
-            const trades = JSON.parse(localStorage.getItem(this.storageKeyTrades) || "[]");
-            const trade = trades.find(t => t.id === parseInt(tradeId));
-            if (trade && ["rechazado", "completado"].includes(trade.estado)) {
-                throw new Error("No puedes enviar mensajes a un trueque rechazado o completado.");
-            }
-
-            const user = this.getCurrentUser();
-            const messages = JSON.parse(localStorage.getItem(this.storageKeyMessages) || "{}");
-            if (!messages[tradeId]) messages[tradeId] = [];
-
-            const newMsg = {
-                id: Date.now(),
-                trueque_id: parseInt(tradeId),
-                remitente_id: user.id,
-                remitente_nombre: user.name,
-                contenido: text,
-                fecha_envio: new Date().toISOString()
-            };
-            messages[tradeId].push(newMsg);
-            localStorage.setItem(this.storageKeyMessages, JSON.stringify(messages));
-            return newMsg;
+            throw e;
         }
 
     }

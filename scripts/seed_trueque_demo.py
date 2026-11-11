@@ -177,7 +177,7 @@ async def main():
         await session.commit()
         await session.refresh(trueque)
 
-        print(f"\nTrueque creado exitosamente!")
+        print("\nTrueque creado exitosamente!")
         print(f"  id          = {trueque.id}")
         print(f"  proponente  = Ana Perez       (id={ana.id})")
         print(f"  receptor    = Carlos Gomez    (id={carlos.id})")

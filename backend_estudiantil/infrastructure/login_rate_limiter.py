@@ -262,4 +262,8 @@ class LoginRateLimiter:
         self._memory_lockouts.pop(f"pair:{pair_key}", None)
 
 
-login_rate_limiter = LoginRateLimiter()
+# Límite global por IP más alto que el de IP+correo: en un campus muchos estudiantes comparten
+# la misma IP pública (NAT). La fuerza bruta sigue limitada por IP+correo y por bloqueo tras fallos.
+login_rate_limiter = LoginRateLimiter(
+    ip_max_per_min=getattr(settings, "LOGIN_MAX_POR_IP_MINUTO", 30),
+)

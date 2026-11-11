@@ -13,13 +13,13 @@ class UserBase(BaseModel):
     foto_url: str | None = Field(None, description="URL pública del avatar o foto de perfil")
 
 class UserCreate(UserBase):
-    password: str = Field(..., min_length=6, description="Contraseña de acceso (mínimo 6 caracteres)")
+    password: str = Field(..., min_length=8, description="Contraseña de acceso (mínimo 8 caracteres)")
     role: str | None = Field(default="user", description="Rol del usuario ('admin', 'moderador', 'user')")
 
 class UserUpdate(BaseModel):
     email: EmailStr | None = None
     name: str | None = None
-    password: str | None = Field(None, min_length=6)
+    password: str | None = Field(None, min_length=8)
     telefono: str | None = None
     carrera: str | None = None
     facultad: str | None = None

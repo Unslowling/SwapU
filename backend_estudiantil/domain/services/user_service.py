@@ -59,7 +59,10 @@ class UserService:
             correo_institucional=payload.email,
             password_hash=hashed,
             name=payload.name,
-            rol="administrador" if (payload.role or "").lower() in ("admin", "administrador") else "usuario",
+            # Seguridad: el registro público NUNCA concede privilegios. Los roles administrador
+            # y moderador solo se asignan por la ruta administrativa (/admin/users/{id}/promote)
+            # o por un administrador existente.
+            rol="usuario",
             estado_cuenta="activo",
             verificado_comunidad=False,  # Inicia False hasta que se confirme el código/enlace
             programa_area=carrera,
@@ -188,9 +191,8 @@ class UserService:
             # Respuesta genérica para no revelar si el correo existe
             raise ValueError("Código de confirmación o correo inválido")
 
-        if user.verificado_comunidad and user.correo_confirmado:
-            return user
-
+        # Sin atajo para cuentas ya confirmadas: cualquier intento debe validar un código pendiente.
+        # Así un código incorrecto nunca se acepta y no se revela qué correos están confirmados.
         if not user.codigo_confirmacion:
             raise ValueError("Código de confirmación o correo inválido")
 

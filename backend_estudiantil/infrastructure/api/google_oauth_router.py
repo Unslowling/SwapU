@@ -76,6 +76,8 @@ async def google_callback(
             rol="usuario",
             estado_cuenta="activo",
             verificado_comunidad=es_inst,
+            # Google ya certificó el correo (email_verified=true): cuenta confirmada
+            correo_confirmado=bool(es_inst),
             universidad=uni,
             perfil_completo=bool(name and uni),
             foto_url=userinfo.get("picture"),
@@ -84,6 +86,9 @@ async def google_callback(
     else:
         # Si ya existía, pero es institucional y Google certifica que el correo está verificado
         modificado = False
+        if es_inst and not user.correo_confirmado:
+            user.correo_confirmado = True
+            modificado = True
         if es_inst and not user.verificado_comunidad:
             user.verificado_comunidad = True
             if not user.universidad:

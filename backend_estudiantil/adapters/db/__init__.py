@@ -20,16 +20,59 @@ def _build_engine_kwargs(target_url: str) -> dict:
         })
     return kwargs
 
+_SSLMODES_ASYNCPG = {"require", "verify-ca", "verify-full", "prefer", "allow", "disable"}
+
+
+def _normalizar_url(url: str) -> tuple[str, dict]:
+    """Adapta URLs de proveedores (postgres://, postgresql://, ?sslmode=require) al driver asyncpg.
+
+    asyncpg no acepta 'sslmode' ni 'channel_binding' en la URL: se traducen a connect_args.
+    """
+    connect_args: dict = {}
+    if url.startswith("postgres://"):
+        url = "postgresql+asyncpg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://"):
+        url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+    if url.startswith("postgresql+asyncpg://") and "?" in url:
+        base, query = url.split("?", 1)
+        restantes = []
+        for parametro in filter(None, query.split("&")):
+            clave, _, valor = parametro.partition("=")
+            if clave == "sslmode":
+                if valor in _SSLMODES_ASYNCPG and valor != "disable":
+                    connect_args["ssl"] = valor
+            elif clave == "channel_binding":
+                continue
+            else:
+                restantes.append(parametro)
+        url = base + ("?" + "&".join(restantes) if restantes else "")
+    return url, connect_args
+
+
+def _crear_motor(url: str):
+    url_real, connect_args = _normalizar_url(url)
+    kwargs = _build_engine_kwargs(url_real)
+    if connect_args:
+        kwargs["connect_args"] = connect_args
+    return create_async_engine(url_real, **kwargs)
+
+
 # Motor y fábrica de sesiones global
-engine = create_async_engine(settings.DATABASE_URL, **_build_engine_kwargs(settings.DATABASE_URL))
+_url_motor = settings.DATABASE_URL
+engine = _crear_motor(_url_motor)
 AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 def get_engine(url: str | None = None):
-    """Retorna o regenera el motor y la fábrica de sesiones si cambió la URL."""
-    global engine, AsyncSessionLocal
+    """Retorna o regenera el motor y la fábrica de sesiones si cambió la URL.
+
+    Se compara contra la URL configurada guardada (no contra str(engine.url), que oculta la
+    contraseña y provocaría crear un pool nuevo en cada llamada con PostgreSQL).
+    """
+    global engine, AsyncSessionLocal, _url_motor
     target_url = url or settings.DATABASE_URL
-    if str(engine.url) != target_url:
-        engine = create_async_engine(target_url, **_build_engine_kwargs(target_url))
+    if target_url != _url_motor:
+        engine = _crear_motor(target_url)
+        _url_motor = target_url
         AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
     return engine
 

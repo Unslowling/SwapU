@@ -45,7 +45,7 @@ cp backend_estudiantil/.env.example .env
 Edita `.env` con la cadena de conexión de tu base de datos:
 ```env
 # Conexión a PostgreSQL:
-DATABASE_URL=postgresql+asyncpg://postgres:123456@localhost:5432/trueque
+DATABASE_URL=postgresql+asyncpg://<usuario>:<contraseña>@localhost:5432/swapu
 
 # O si deseas usar SQLite local para desarrollo sin levantar Postgres:
 # DATABASE_URL=sqlite+aiosqlite:///./trueque_estudiantil.db

@@ -262,12 +262,32 @@ class CampusSwapApp {
     }
 
     async loadInitialData() {
+        // El catálogo es público: se carga siempre y un fallo se muestra al usuario.
         try {
             this.books = await api.getPublicaciones();
+        } catch (e) {
+            console.error("Error al cargar el catálogo:", e);
+            this.books = [];
+            this.showToast("No se pudo cargar el catálogo. Verifica que el servidor esté disponible.", "error");
+        }
+
+        // Trueques y coincidencias son privados: solo se piden con sesión iniciada.
+        if (!api.getToken()) {
+            this.trades = [];
+            this.matches = [];
+            return;
+        }
+        try {
             this.trades = await api.getTrueques();
+        } catch (e) {
+            console.error("Error al cargar trueques:", e);
+            this.trades = [];
+        }
+        try {
             this.matches = await api.getMatches();
         } catch (e) {
-            console.error("Error al cargar datos iniciales:", e);
+            console.error("Error al cargar coincidencias:", e);
+            this.matches = [];
         }
     }
 
@@ -2452,14 +2472,8 @@ class CampusSwapApp {
     }
 
     loginAsAdmin() {
-        const adminUser = MOCK_USUARIOS.find(u => u.role === "admin");
-        if (adminUser) {
-            api.setCurrentUser(adminUser);
-            api.setToken("admin_mock_token");
-            this.updateUserBadge();
-            this.showToast("Sesión iniciada como Administrador", "success");
-            this.renderAdminPanel();
-        }
+        // Sin sesión simulada: el acceso de administrador requiere un login real contra el backend.
+        this.openLoginModal();
     }
 
     // -------------------------------------------------------------------------
@@ -2551,6 +2565,34 @@ class CampusSwapApp {
         }
     }
 
+    _esConfirmacionPendiente(error) {
+        return /confirmar tu correo/i.test(error?.message || "");
+    }
+
+    // Pide el código enviado al correo institucional, lo confirma e inicia sesión.
+    // Devuelve el resultado del login, o null si el usuario no ingresó el código.
+    async _confirmarCorreoEIniciarSesion(email, pass) {
+        const codigo = window.prompt(
+            "Te enviamos un código de 6 dígitos a tu correo institucional.\nEscríbelo para activar tu cuenta:"
+        );
+        if (!codigo || !codigo.trim()) {
+            if (window.confirm("¿Quieres que te reenviemos el código de confirmación?")) {
+                try {
+                    await api.reenviarCodigo(email);
+                    this.showToast("Te enviamos un nuevo código. Revisa tu correo e inicia sesión de nuevo.", "info");
+                } catch (err) {
+                    this.showToast(err.message || "No se pudo reenviar el código", "error");
+                }
+            } else {
+                this.showToast("Debes confirmar tu correo institucional para usar tu cuenta.", "warning");
+            }
+            return null;
+        }
+        await api.confirmarCodigo(email, codigo.trim());
+        this.showToast("Correo confirmado. Iniciando sesión...", "success");
+        return await api.login(email, pass);
+    }
+
     async submitLogin() {
         const email = document.getElementById("login-email")?.value?.trim();
         const pass = document.getElementById("login-password")?.value;
@@ -2561,7 +2603,14 @@ class CampusSwapApp {
         }
 
         try {
-            const result = await api.login(email, pass);
+            let result;
+            try {
+                result = await api.login(email, pass);
+            } catch (e) {
+                if (!this._esConfirmacionPendiente(e)) throw e;
+                result = await this._confirmarCorreoEIniciarSesion(email, pass);
+                if (!result) return;
+            }
             this.updateUserBadge();
             this.showToast(`¡Bienvenido de nuevo, ${result.user?.name || ''}!`, "success");
             this.closeModal("login-modal");
@@ -2595,13 +2644,23 @@ class CampusSwapApp {
             this.showToast("Por favor escribe un correo electrónico válido", "warning");
             return;
         }
-        if (!pass || pass.length < 6) {
-            this.showToast("La contraseña debe tener al menos 6 caracteres", "warning");
+        if (!pass || pass.length < 8) {
+            this.showToast("La contraseña debe tener al menos 8 caracteres", "warning");
             return;
         }
 
         try {
-            const result = await api.register({ name, email, password: pass, telefono, facultad, carrera, semestre, universidad });
+            let result;
+            try {
+                result = await api.register({ name, email, password: pass, telefono, facultad, carrera, semestre, universidad });
+            } catch (e) {
+                // La cuenta ya se creó; con correo institucional falta confirmarlo antes de entrar.
+                if (!this._esConfirmacionPendiente(e)) throw e;
+                this.closeModal("register-modal");
+                this.closeModal("auth-modal");
+                result = await this._confirmarCorreoEIniciarSesion(email, pass);
+                if (!result) return;
+            }
             this.updateUserBadge();
             this.showToast(`¡Cuenta creada con éxito! Bienvenido, ${result.user?.name || name}`, "success");
             this.closeModal("register-modal");

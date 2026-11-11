@@ -31,7 +31,8 @@ class Trueque:
         self.fecha_confirmacion = datetime.utcnow()
 
     def completar(self):
-        if self.estado not in ("propuesto", "confirmado"):
+        # Solo se completa un trueque confirmado por el receptor (no se puede saltar la confirmación)
+        if self.estado != "confirmado":
             raise ValueError(f"No se puede completar un trueque en estado '{self.estado}'")
         self.estado = "completado"
         self.fecha_completado = datetime.utcnow()

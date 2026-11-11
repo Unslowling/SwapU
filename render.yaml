@@ -1,0 +1,49 @@
+# Blueprint de Render para SWAPU (plan gratuito, sin Docker).
+# Backend FastAPI + frontend estático servidos por el mismo proceso (mismo origen).
+# La base de datos PostgreSQL vive fuera de Render (Neon, plan gratuito): ver docs/despliegue_gratuito.md
+services:
+  - type: web
+    name: swapu
+    runtime: python
+    plan: free
+    branch: main
+    buildCommand: pip install --upgrade pip && pip install -r backend_estudiantil/requirements-deploy.txt
+    startCommand: uvicorn backend_estudiantil.infrastructure.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: ENV
+        value: prod
+      # Cadena de conexión de Neon (se pega en el panel de Render; nunca en el repositorio)
+      - key: DATABASE_URL
+        sync: false
+      # Render genera una clave aleatoria segura (>= 32 caracteres)
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: lax
+      # Sin Redis en el plan gratuito: el chat y los límites usan memoria local
+      - key: REDIS_URL
+        value: ""
+      # URL pública del servicio (para enlaces de confirmación por correo)
+      - key: APP_BASE_URL
+        sync: false
+      # Correo SMTP para enviar los códigos de confirmación (obligatorio en producción)
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM_EMAIL
+        sync: false
+      # Poner "false" solo mientras no haya SMTP configurado
+      - key: CONFIRMACION_CORREO_OBLIGATORIA
+        value: "true"
+      - key: BOOK_VERIFICATION_STORAGE_PATH
+        value: ./storage/book-verification

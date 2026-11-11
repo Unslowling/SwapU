@@ -149,8 +149,13 @@ async def _guardar_log_auditoria(datos_log: dict):
             registro = AuditoriaLogORM(**datos_log)
             session.add(registro)
             await session.commit()
-    except Exception as exc:
+    except (Exception, asyncio.CancelledError) as exc:
         logger.error("Error al persistir log de auditoría 5W: %s", exc)
+
+
+# Referencias fuertes a las tareas de auditoría en curso (evita que el recolector
+# de basura las elimine a mitad de escritura y que queden corrutinas sin cerrar).
+_tareas_auditoria: set[asyncio.Task] = set()
 
 
 class AuditMiddleware(BaseHTTPMiddleware):
@@ -253,6 +258,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 "detalle": detalle,
                 "duracion_ms": duracion_ms,
             }
-            asyncio.create_task(_guardar_log_auditoria(datos_auditoria))
+            tarea = asyncio.create_task(_guardar_log_auditoria(datos_auditoria))
+            _tareas_auditoria.add(tarea)
+            tarea.add_done_callback(_tareas_auditoria.discard)
 
         return response

@@ -1,4 +1,3 @@
-import asyncio
 import io
 from uuid import uuid4
 
@@ -7,9 +6,8 @@ from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 from starlette.websockets import WebSocketDisconnect
 
-from backend_estudiantil.adapters.db import get_engine
-from backend_estudiantil.config.settings import settings
 from backend_estudiantil.infrastructure.main import app
+from backend_estudiantil.tests._admin_helpers import convertir_en_administrador
 
 pytestmark = pytest.mark.integration
 
@@ -26,6 +24,9 @@ def _register_and_login(client: TestClient, name: str, email: str, role: str = "
         json={"name": name, "email": email, "password": "password123", "role": role},
     )
     assert response.status_code == 201
+    if role == "admin":
+        # El registro público no concede roles: se asigna en la SQLite temporal de la prueba
+        convertir_en_administrador(email)
     response = client.post(
         "/auth/login",
         json={"email": email, "password": "password123"},

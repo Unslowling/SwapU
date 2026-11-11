@@ -3,7 +3,6 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
 
 from backend_estudiantil.config.settings import settings
 
@@ -250,3 +249,11 @@ def trueque_factory(client):
         return trueque_id
 
     return _crear_trueque
+
+
+@pytest.fixture(autouse=True)
+def _confirmacion_correo_desactivada_en_pruebas_heredadas(monkeypatch):
+    """Las pruebas heredadas registran correos institucionales sin confirmarlos.
+    La regla de confirmación se prueba explícitamente en test_confirmacion_correo_obligatoria.py.
+    """
+    monkeypatch.setattr(settings, "CONFIRMACION_CORREO_OBLIGATORIA", False)

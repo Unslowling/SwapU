@@ -68,11 +68,15 @@ class SMTPEmailSender(EmailSender):
                 logger.error("Error al enviar correo vía SMTP a %s: %s", to_email, str(e))
                 # Fallback al log para no bloquear al usuario en caso de falla de red externa
         
-        # En desarrollo local o pruebas sin SMTP configurado
-        logger.info(
-            "SIMULACIÓN DE ENVÍO DE CORREO: Para=%s | Código=%s | Enlace=%s",
-            to_email,
-            code,
-            verification_link,
-        )
+        # Sin SMTP configurado. Solo en desarrollo/pruebas se registra el código para poder probar;
+        # en otros entornos nunca se escribe el código en los logs.
+        if (getattr(settings, "ENV", "dev") or "dev").strip().lower() in ("dev", "test"):
+            logger.info(
+                "SIMULACIÓN DE ENVÍO DE CORREO: Para=%s | Código=%s | Enlace=%s",
+                to_email,
+                code,
+                verification_link,
+            )
+        else:
+            logger.error("SMTP no configurado: el correo de confirmación de %s no pudo enviarse", to_email)
         return True

@@ -3,8 +3,6 @@ import pytest_asyncio
 
 from httpx import ASGITransport, AsyncClient
 
-from backend_estudiantil.adapters.db import Base, get_engine
-from backend_estudiantil.config.settings import settings
 from backend_estudiantil.infrastructure.main import app
 
 pytestmark = pytest.mark.integration

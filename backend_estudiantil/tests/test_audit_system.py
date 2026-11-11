@@ -5,8 +5,7 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy import select
 
 from backend_estudiantil.infrastructure.main import app
-from backend_estudiantil.config.settings import settings
-from backend_estudiantil.adapters.db import Base, get_engine, get_session_factory, AuditoriaLogORM, UserORM
+from backend_estudiantil.adapters.db import get_session_factory, AuditoriaLogORM, UserORM
 from backend_estudiantil.adapters.security.password_hasher import hash_password
 from backend_estudiantil.adapters.security.jwt_authenticator import JWTAuthenticator
 

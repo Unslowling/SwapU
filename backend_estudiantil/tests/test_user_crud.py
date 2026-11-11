@@ -3,8 +3,7 @@ import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
 from backend_estudiantil.infrastructure.main import app
-from backend_estudiantil.config.settings import settings
-from backend_estudiantil.adapters.db import Base, get_engine
+from backend_estudiantil.tests._admin_helpers import convertir_en_administrador
 
 pytestmark = pytest.mark.integration
 
@@ -67,6 +66,8 @@ async def test_user_crud_and_promotion():
         }
         resp_admin = await client.post("/auth/register", json=admin_payload)
         assert resp_admin.status_code == 201
+        # El registro público no concede roles; se asigna en la SQLite temporal de la prueba
+        convertir_en_administrador(admin_payload["email"])
 
         # 6. Login como admin para obtener token con rol admin
         login_resp = await client.post(

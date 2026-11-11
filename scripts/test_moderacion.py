@@ -1,5 +1,7 @@
 """Prueba el filtro de moderación de palabras en el chat."""
-import urllib.request, urllib.error, json
+import urllib.request
+import urllib.error
+import json
 
 BASE = "http://127.0.0.1:8000"
 

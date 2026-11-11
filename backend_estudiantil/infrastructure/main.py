@@ -14,7 +14,6 @@ from slowapi.util import get_remote_address
 from sqlalchemy import select, text
 
 from backend_estudiantil.adapters.db import (
-    Base,
     CategoriaORM,
     get_engine,
     get_session_factory,

@@ -44,6 +44,22 @@ class ResultadoOperacionUsuario:
         return self.puede_operar
 
 
+def _requiere_confirmacion_correo(usuario: Any) -> bool:
+    """True si la cuenta es institucional y su correo aún no está confirmado.
+
+    Se controla con CONFIRMACION_CORREO_OBLIGATORIA para poder desactivar la regla
+    durante una transición. Si el objeto no trae el dato, no se bloquea (compatibilidad).
+    """
+    from backend_estudiantil.config.settings import settings
+
+    if not getattr(settings, "CONFIRMACION_CORREO_OBLIGATORIA", True):
+        return False
+    if getattr(usuario, "correo_confirmado", True):
+        return False
+    correo = getattr(usuario, "correo_institucional", None) or ""
+    return bool(settings.es_dominio_institucional(correo))
+
+
 def usuario_puede_operar(usuario: Any) -> ResultadoOperacionUsuario:
     """Función de dominio centralizada para evaluar si un usuario puede operar en la plataforma.
     
@@ -113,7 +129,20 @@ def usuario_puede_operar(usuario: Any) -> ResultadoOperacionUsuario:
             estado_cuenta="inactivo",
         )
 
-    # 4. Cuenta activa o pendiente
+    # 4. Correo institucional sin confirmar: no puede operar hasta confirmar el código/enlace.
+    # Las cuentas generales (dominio no institucional) no requieren confirmación.
+    if _requiere_confirmacion_correo(usuario):
+        return ResultadoOperacionUsuario(
+            puede_operar=False,
+            motivo=(
+                "Debes confirmar tu correo institucional antes de operar. "
+                "Solicita un nuevo código de confirmación si el anterior venció."
+            ),
+            fecha_fin=None,
+            estado_cuenta="pendiente",
+        )
+
+    # 5. Cuenta activa
     return ResultadoOperacionUsuario(
         puede_operar=True,
         motivo=None,

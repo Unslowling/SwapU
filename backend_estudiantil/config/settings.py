@@ -39,11 +39,6 @@ class Settings(BaseSettings):
         description="Lista de orígenes permitidos para CORS",
     )
 
-    REDIS_URL: str = Field(
-        default="",
-        validation_alias="REDIS_URL",
-        description="Redis para distribuir eventos WebSocket entre réplicas de la API",
-    )
     BOOK_VERIFICATION_STORAGE_PATH: str = Field(
         default="./storage/book-verification",
         validation_alias="BOOK_VERIFICATION_STORAGE_PATH",
@@ -126,6 +121,21 @@ class Settings(BaseSettings):
         default=10,
         validation_alias="LIMITE_PUBLICACIONES_VERIFICADOS",
         description="Límite máximo de publicaciones activas para estudiantes verificados",
+    )
+
+    # Confirmación obligatoria del correo institucional antes de operar.
+    # Poner en false solo durante una transición (cuentas heredadas sin confirmar).
+    CONFIRMACION_CORREO_OBLIGATORIA: bool = Field(
+        default=True,
+        validation_alias="CONFIRMACION_CORREO_OBLIGATORIA",
+        description="Bloquea operaciones de cuentas con correo institucional no confirmado",
+    )
+
+    # Límite global de intentos de login por IP y minuto (los campus comparten IP pública).
+    LOGIN_MAX_POR_IP_MINUTO: int = Field(
+        default=30,
+        validation_alias="LOGIN_MAX_POR_IP_MINUTO",
+        description="Máximo de intentos de inicio de sesión por IP en un minuto",
     )
 
     # Configuración de Verificación con IA
