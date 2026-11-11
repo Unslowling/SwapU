@@ -5,7 +5,7 @@ Se ejecuta antes de iniciar el servidor (ver render.yaml). Es seguro ejecutarlo 
 1. Esquema: SOLO si la base no tiene ninguna tabla, crea las tablas de los modelos ORM,
    las categorías base y la organización USBMED. Si ya existen tablas (por ejemplo, una
    copia de `swapu`), NO modifica el esquema ni los datos.
-2. Administrador inicial: si están definidas ADMIN_EMAIL_INICIAL y ADMIN_PASSWORD_INICIAL
+2. Cuentas por rol (administrador, moderador y estudiante): si están definidas ADMIN_EMAIL_INICIAL y ADMIN_PASSWORD_INICIAL
    y ese correo no existe, crea la cuenta con rol administrador. Si ya existe, no la cambia.
 """
 import asyncio
@@ -51,38 +51,59 @@ async def preparar_esquema() -> None:
     print("[init] Categorías base listas.")
 
 
-async def crear_admin_inicial() -> None:
+def _con_sufijo(correo: str, sufijo: str) -> str:
+    """nombre@dominio -> nombre+sufijo@dominio (los correos llegan al mismo buzón)."""
+    usuario, dominio = correo.split("@", 1)
+    return f"{usuario}+{sufijo}@{dominio}"
+
+
+async def crear_cuentas_por_rol() -> None:
+    """Crea una cuenta por rol a partir de ADMIN_EMAIL_INICIAL y ADMIN_PASSWORD_INICIAL.
+
+    - Administrador: ADMIN_EMAIL_INICIAL
+    - Moderador:     nombre+moderador@dominio
+    - Estudiante:    nombre+estudiante@dominio
+    Todas con ADMIN_PASSWORD_INICIAL. Las cuentas que ya existen no se modifican.
+    """
     correo = (os.getenv("ADMIN_EMAIL_INICIAL") or "").strip().lower()
     clave = os.getenv("ADMIN_PASSWORD_INICIAL") or ""
-    if not correo or not clave:
-        print("[init] ADMIN_EMAIL_INICIAL / ADMIN_PASSWORD_INICIAL no definidas: sin administrador inicial.")
+    if not correo or not clave or "@" not in correo:
+        print("[init] ADMIN_EMAIL_INICIAL / ADMIN_PASSWORD_INICIAL no definidas: no se crean cuentas iniciales.")
         return
     if len(clave) < 8:
-        print("[init] ADMIN_PASSWORD_INICIAL debe tener al menos 8 caracteres: no se crea el administrador.")
+        print("[init] ADMIN_PASSWORD_INICIAL debe tener al menos 8 caracteres: no se crean cuentas iniciales.")
         return
-    repo = SQLAlchemyUserRepository()
-    if await repo.get_by_email(correo):
-        print("[init] El administrador inicial ya existe: no se modifica.")
-        return
-    universidad = settings.obtener_universidad_por_dominio(correo)
-    await repo.create(
-        User(
-            correo_institucional=correo,
-            password_hash=await hash_password_async(clave),
-            name="Administrador SWAPU",
-            rol="administrador",
-            estado_cuenta="activo",
-            correo_confirmado=True,
-            verificado_comunidad=bool(universidad),
-            universidad=universidad,
-        )
+
+    cuentas = (
+        (correo, "Administrador SWAPU", "administrador"),
+        (_con_sufijo(correo, "moderador"), "Moderador SWAPU", "moderador"),
+        (_con_sufijo(correo, "estudiante"), "Estudiante SWAPU", "usuario"),
     )
-    print("[init] Administrador inicial creado.")
+    repo = SQLAlchemyUserRepository()
+    clave_hash = await hash_password_async(clave)
+    for email, nombre, rol in cuentas:
+        if await repo.get_by_email(email):
+            print(f"[init] Cuenta '{rol}' ya existe: no se modifica.")
+            continue
+        universidad = settings.obtener_universidad_por_dominio(email)
+        await repo.create(
+            User(
+                correo_institucional=email,
+                password_hash=clave_hash,
+                name=nombre,
+                rol=rol,
+                estado_cuenta="activo",
+                correo_confirmado=True,
+                verificado_comunidad=bool(universidad),
+                universidad=universidad,
+            )
+        )
+        print(f"[init] Cuenta '{rol}' creada.")
 
 
 async def main() -> None:
     await preparar_esquema()
-    await crear_admin_inicial()
+    await crear_cuentas_por_rol()
     await get_engine().dispose()
 
 
