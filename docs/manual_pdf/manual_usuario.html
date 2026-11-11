@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>SWAPU — Manual de Usuario</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+  :root { --naranja: #ea580c; --naranja2: #f59e0b; --tinta: #1c1917; --gris: #57534e; --suave: #f5f5f4; --borde: #e7e5e4; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: var(--tinta); font-size: 10.5pt; line-height: 1.5; margin: 0; }
+  h1, h2, h3 { color: var(--tinta); line-height: 1.2; }
+  h2 { font-size: 17pt; margin: 0 0 6pt; padding-bottom: 6pt; border-bottom: 3px solid var(--naranja); }
+  h3 { font-size: 12.5pt; margin: 14pt 0 4pt; color: var(--naranja); }
+  p { margin: 4pt 0 8pt; }
+  ol, ul { margin: 4pt 0 8pt 16pt; padding: 0; }
+  li { margin: 2pt 0; }
+  .seccion { page-break-before: always; }
+  figure { margin: 10pt 0 12pt; text-align: center; page-break-inside: avoid; }
+  figure img { width: 100%; border: 1px solid var(--borde); border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+  figcaption { font-size: 9pt; color: var(--gris); margin-top: 4pt; font-style: italic; }
+  .nota { background: #fff7ed; border-left: 4px solid var(--naranja); padding: 7pt 10pt; border-radius: 4px; margin: 8pt 0; font-size: 9.8pt; page-break-inside: avoid; }
+  .aviso { background: #eff6ff; border-left: 4px solid #2563eb; padding: 7pt 10pt; border-radius: 4px; margin: 8pt 0; font-size: 9.8pt; page-break-inside: avoid; }
+  table { width: 100%; border-collapse: collapse; margin: 6pt 0 10pt; font-size: 9.6pt; page-break-inside: avoid; }
+  th { background: var(--tinta); color: #fff; text-align: left; padding: 5pt 7pt; }
+  td { border-bottom: 1px solid var(--borde); padding: 5pt 7pt; vertical-align: top; }
+  tr:nth-child(even) td { background: var(--suave); }
+  .k { display: inline-block; background: var(--suave); border: 1px solid var(--borde); border-radius: 4px; padding: 0 5pt; font-weight: 600; font-size: 9.5pt; }
+
+  /* Portada */
+  .portada { height: 255mm; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+  .logo { width: 70pt; height: 70pt; margin: 0 auto 18pt; border-radius: 18pt; background: linear-gradient(135deg, var(--naranja), var(--naranja2));
+          color: #fff; font-size: 34pt; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  .portada h1 { font-size: 36pt; margin: 0; letter-spacing: -0.5pt; }
+  .portada .sub { font-size: 15pt; color: var(--gris); margin: 6pt 0 26pt; }
+  .portada .linea { width: 80pt; height: 4px; background: var(--naranja); margin: 0 auto 26pt; border-radius: 2px; }
+  .portada .meta { font-size: 10.5pt; color: var(--gris); line-height: 1.8; }
+
+  /* Índice */
+  .indice ol { list-style: none; margin: 10pt 0 0; padding: 0; counter-reset: i; }
+  .indice li { counter-increment: i; padding: 6pt 0; border-bottom: 1px dotted var(--borde); font-size: 11pt; }
+  .indice li::before { content: counter(i) ". "; color: var(--naranja); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<!-- PORTADA -->
+<div class="portada">
+  <div class="logo">⇄</div>
+  <h1>SWAPU</h1>
+  <div class="sub">Manual de Usuario</div>
+  <div class="linea"></div>
+  <div class="meta">
+    Plataforma de intercambio de libros y material académico entre estudiantes universitarios<br>
+    Proyecto demo final — Entrega oficial de la herramienta (Semana 8)<br>
+    Noviembre de 2026
+  </div>
+</div>
+
+<!-- ÍNDICE -->
+<div class="seccion indice">
+  <h2>Contenido</h2>
+  <ol>
+    <li>¿Qué es SWAPU?</li>
+    <li>Explorar el catálogo sin cuenta</li>
+    <li>Crear una cuenta y confirmar el correo</li>
+    <li>Iniciar y cerrar sesión</li>
+    <li>Tu perfil y la verificación de estudiante</li>
+    <li>Publicar un libro</li>
+    <li>Verificar tu libro con fotografías</li>
+    <li>Buscar libros en el catálogo</li>
+    <li>Coincidencias (matches)</li>
+    <li>Gestionar tus trueques</li>
+    <li>Chat del intercambio</li>
+    <li>Calificar un intercambio y reputación</li>
+    <li>Tickets de soporte</li>
+    <li>Panel de administración y moderación</li>
+    <li>Preguntas frecuentes y solución de problemas</li>
+  </ol>
+  <div class="aviso" style="margin-top:18pt">
+    <strong>Sobre las imágenes:</strong> todas las capturas de este manual se tomaron de la aplicación real en funcionamiento,
+    con datos de ejemplo creados para la demostración (estudiantes ficticios de la Universidad de San Buenaventura Medellín).
+  </div>
+</div>
+
+<!-- 1 -->
+<div class="seccion">
+  <h2>1. ¿Qué es SWAPU?</h2>
+  <p>SWAPU es una aplicación web que permite a estudiantes universitarios <strong>intercambiar libros y material académico sin dinero</strong>.
+     Publicas los libros que ya no usas, indicas cuál necesitas y la plataforma te conecta con compañeros que tienen lo que buscas.</p>
+  <h3>Lo que puedes hacer</h3>
+  <ul>
+    <li>Publicar libros con su información bibliográfica y verificarlos con fotografías.</li>
+    <li>Buscar libros por título, autor o categoría.</li>
+    <li>Recibir coincidencias automáticas de intercambio.</li>
+    <li>Proponer, aceptar, rechazar y completar trueques.</li>
+    <li>Coordinar la entrega por chat en tiempo real.</li>
+    <li>Calificar a la otra persona y construir tu reputación.</li>
+  </ul>
+  <h3>Menú principal</h3>
+  <table>
+    <tr><th>Opción</th><th>Para qué sirve</th></tr>
+    <tr><td><span class="k">Catálogo</span></td><td>Ver y buscar todos los libros disponibles.</td></tr>
+    <tr><td><span class="k">Matches</span></td><td>Coincidencias entre tus libros y los de otros estudiantes.</td></tr>
+    <tr><td><span class="k">Trueques</span></td><td>Estado de tus propuestas e intercambios.</td></tr>
+    <tr><td><span class="k">Chat</span></td><td>Conversaciones de tus trueques activos.</td></tr>
+    <tr><td><span class="k">Mi Perfil</span></td><td>Tus datos, publicaciones, reputación y reseñas.</td></tr>
+    <tr><td><span class="k">Tickets</span></td><td>Mensajes de soporte y revisión de tus publicaciones.</td></tr>
+    <tr><td><span class="k">+ Publicar</span></td><td>Registrar un libro nuevo.</td></tr>
+  </table>
+</div>
+
+<!-- 2 -->
+<div class="seccion">
+  <h2>2. Explorar el catálogo sin cuenta</h2>
+  <p>Al abrir SWAPU verás la página de inicio y el catálogo de libros verificados. No necesitas una cuenta para explorarlo.</p>
+  <figure><img src="../manual_img/01_catalogo.png"><figcaption>Figura 1. Página de inicio y catálogo público.</figcaption></figure>
+  <ul>
+    <li>Usa la <strong>barra de búsqueda</strong> para buscar por título, autor o el libro que la persona quiere a cambio.</li>
+    <li>Filtra por <strong>categoría</strong> con los botones (Ingeniería y Tecnología, Ciencias Básicas, Humanidades…).</li>
+    <li>Cada tarjeta muestra el estado físico del libro y su categoría.</li>
+  </ul>
+  <div class="nota">Para publicar, proponer trueques o chatear debes <strong>registrarte e iniciar sesión</strong>.</div>
+</div>
+
+<!-- 3 -->
+<div class="seccion">
+  <h2>3. Crear una cuenta y confirmar el correo</h2>
+  <ol>
+    <li>Pulsa <span class="k">Registrarse</span> en la esquina superior derecha.</li>
+    <li>Escribe tu <strong>nombre completo</strong>, tu <strong>correo</strong> y una <strong>contraseña de mínimo 8 caracteres</strong>.</li>
+    <li>Completa, si quieres, tu información académica: universidad, facultad, carrera, semestre y teléfono.</li>
+    <li>Pulsa <span class="k">Crear cuenta</span>.</li>
+  </ol>
+  <figure><img src="../manual_img/02_registro.png"><figcaption>Figura 2. Formulario de registro.</figcaption></figure>
+  <h3>Confirmar tu correo institucional</h3>
+  <p>Si te registras con un correo institucional (por ejemplo <em>@usbmed.edu.co</em>), recibirás un <strong>código de 6 dígitos</strong>.
+     La aplicación te lo pedirá en una ventana: escríbelo y acepta. Tu cuenta quedará activa y con la insignia de <strong>Estudiante Verificado</strong>.</p>
+  <ul>
+    <li>El código vence a los <strong>30 minutos</strong> y admite <strong>5 intentos</strong>.</li>
+    <li>Si no lo recibiste, deja la ventana vacía y acepta <strong>reenviar el código</strong>.</li>
+    <li>Hasta confirmarlo no podrás publicar ni intercambiar con esa cuenta.</li>
+  </ul>
+  <div class="aviso">También puedes registrarte con <strong>Google</strong> o <strong>Facebook</strong> si la institución habilitó esos accesos.</div>
+</div>
+
+<!-- 4 -->
+<div class="seccion">
+  <h2>4. Iniciar y cerrar sesión</h2>
+  <ol>
+    <li>Pulsa <span class="k">Iniciar Sesión</span>.</li>
+    <li>Escribe tu correo y contraseña y pulsa <span class="k">Entrar</span>.</li>
+  </ol>
+  <figure><img src="../manual_img/03_login.png"><figcaption>Figura 3. Inicio de sesión.</figcaption></figure>
+  <ul>
+    <li>Tu sesión se mantiene al recargar la página.</li>
+    <li>Para salir, pulsa el ícono de <strong>cerrar sesión</strong> junto a tu nombre.</li>
+    <li>Tras <strong>5 intentos fallidos seguidos</strong> la cuenta se bloquea temporalmente <strong>15 minutos</strong> por seguridad.</li>
+  </ul>
+</div>
+
+<!-- 5 -->
+<div class="seccion">
+  <h2>5. Tu perfil y la verificación de estudiante</h2>
+  <p>En <span class="k">Mi Perfil</span> encuentras tus datos, tus estadísticas, tus publicaciones y las reseñas que te dejaron.</p>
+  <figure><img src="../manual_img/04_perfil.png"><figcaption>Figura 4. Perfil del estudiante con insignia de verificación y reputación.</figcaption></figure>
+  <table>
+    <tr><th>Indicador</th><th>Significado</th></tr>
+    <tr><td>Trueques completados</td><td>Intercambios que finalizaste.</td></tr>
+    <tr><td>Reputación académica</td><td>Promedio de tus calificaciones y nivel: <em>Nuevo</em>, <em>Confiable</em> o <em>Destacado</em>.</td></tr>
+    <tr><td>Estado de comunidad</td><td>Si eres estudiante verificado.</td></tr>
+    <tr><td>Completitud del perfil</td><td>Si tus datos académicos están completos.</td></tr>
+  </table>
+  <h3>Editar tus datos</h3>
+  <p>Pulsa <span class="k">Editar Perfil</span> para actualizar nombre, teléfono, facultad, carrera y semestre.</p>
+  <h3>Verificación de estudiante (opcional)</h3>
+  <p>Si no usaste un correo institucional, puedes <strong>subir una foto de tu carné</strong>. Un moderador la revisa y la aprueba o rechaza indicando el motivo.
+     Los estudiantes verificados pueden tener <strong>hasta 10 publicaciones activas</strong> (en lugar de 3) y obtienen prioridad en las coincidencias.</p>
+</div>
+
+<!-- 6 -->
+<div class="seccion">
+  <h2>6. Publicar un libro</h2>
+  <ol>
+    <li>Pulsa <span class="k">+ Publicar</span>.</li>
+    <li>Completa la información del libro:
+      <ul>
+        <li><strong>Título</strong> y <strong>libro que buscas a cambio</strong> (obligatorios).</li>
+        <li>Autor, categoría, estado físico, edición y descripción.</li>
+        <li><strong>ISBN</strong> de 10 o 13 dígitos, si lo tiene (se valida automáticamente).</li>
+      </ul>
+    </li>
+    <li>Pulsa <span class="k">Publicar</span>.</li>
+  </ol>
+  <figure><img src="../manual_img/05_publicar.png"><figcaption>Figura 5. Formulario para publicar un libro.</figcaption></figure>
+  <div class="nota">Tu libro <strong>no aparece en el catálogo de inmediato</strong>: primero debe pasar la verificación con fotografías (siguiente sección).</div>
+</div>
+
+<!-- 7 -->
+<div class="seccion">
+  <h2>7. Verificar tu libro con fotografías</h2>
+  <p>Al publicar, SWAPU te muestra un <strong>código único</strong>. Sirve para demostrar que el libro está realmente en tus manos.</p>
+  <figure><img src="../manual_img/06_verificacion.png"><figcaption>Figura 6. Código de verificación y carga de fotografías.</figcaption></figure>
+  <ol>
+    <li>Escribe el código en una hoja de papel.</li>
+    <li>Toma una foto de la <strong>portada</strong> con la hoja visible al lado.</li>
+    <li>Toma una foto de la <strong>página legal donde aparece el ISBN</strong>, también con la hoja.</li>
+    <li>Sube las dos fotos (JPG o PNG) y pulsa <span class="k">Verificar</span>.</li>
+  </ol>
+  <h3>¿Qué pasa después?</h3>
+  <ul>
+    <li>Si el sistema de inteligencia artificial está disponible, analiza las fotos.</li>
+    <li>Si la IA no está disponible o no puede decidir, la publicación pasa a <strong>revisión humana</strong> por un moderador.</li>
+    <li>Cuando la verificación se aprueba, tu libro aparece en el catálogo. Si se rechaza, verás el motivo.</li>
+  </ul>
+  <div class="aviso">El código vence en <strong>15 minutos</strong>. Las fotos son privadas: solo las ven los moderadores.</div>
+</div>
+
+<!-- 8 -->
+<div class="seccion">
+  <h2>8. Buscar libros en el catálogo</h2>
+  <p>Con tu sesión iniciada, el catálogo te permite ver los detalles de cada libro y proponer un intercambio a su dueño.</p>
+  <figure><img src="../manual_img/07_catalogo_sesion.png"><figcaption>Figura 7. Catálogo con sesión iniciada.</figcaption></figure>
+  <ul>
+    <li>Busca por título, autor o libro buscado.</li>
+    <li>Filtra por categoría.</li>
+    <li>Abre una tarjeta para ver autor, edición, estado, descripción y el dueño.</li>
+  </ul>
+</div>
+
+<!-- 9 -->
+<div class="seccion">
+  <h2>9. Coincidencias (matches)</h2>
+  <p>SWAPU compara tus libros con los del resto de estudiantes y te muestra <strong>quién tiene lo que buscas y busca lo que tienes</strong>.</p>
+  <figure><img src="../manual_img/08_coincidencias.png"><figcaption>Figura 8. Coincidencia exacta entre dos estudiantes.</figcaption></figure>
+  <ul>
+    <li><strong>Exacta:</strong> los títulos coinciden. <strong>Similar:</strong> títulos parecidos.</li>
+    <li>El porcentaje indica qué tan buena es la coincidencia.</li>
+    <li>Pulsa <span class="k">Iniciar Trueque</span> para enviar la propuesta.</li>
+  </ul>
+  <div class="nota">El número junto a <strong>Matches</strong> en el menú indica cuántas coincidencias tienes.</div>
+</div>
+
+<!-- 10 -->
+<div class="seccion">
+  <h2>10. Gestionar tus trueques</h2>
+  <p>En <span class="k">Trueques</span> ves todas tus propuestas y su estado. Puedes filtrarlas con las pestañas superiores.</p>
+  <figure><img src="../manual_img/09_trueques.png"><figcaption>Figura 9. Gestor de intercambios.</figcaption></figure>
+  <table>
+    <tr><th>Estado</th><th>Qué significa</th><th>Qué puedes hacer</th></tr>
+    <tr><td>Propuesto</td><td>Esperando respuesta.</td><td>El receptor puede <strong>Confirmar</strong> o <strong>Rechazar</strong>.</td></tr>
+    <tr><td>Confirmado</td><td>Ambos aceptaron.</td><td>Coordinar por chat y <strong>Marcar como completado</strong>.</td></tr>
+    <tr><td>Completado</td><td>Intercambio realizado.</td><td><strong>Calificar</strong> a la otra persona.</td></tr>
+    <tr><td>Rechazado</td><td>Propuesta descartada.</td><td>Nada; el chat se cierra.</td></tr>
+  </table>
+  <div class="nota">Un trueque <strong>solo puede completarse si fue confirmado</strong>, y uno rechazado no puede completarse.</div>
+</div>
+
+<!-- 11 -->
+<div class="seccion">
+  <h2>11. Chat del intercambio</h2>
+  <p>Cada trueque tiene su propio chat para acordar lugar y hora de entrega. Los mensajes llegan <strong>en tiempo real</strong>.</p>
+  <figure><img src="../manual_img/10_chat.png"><figcaption>Figura 10. Chat entre dos estudiantes con trueque confirmado.</figcaption></figure>
+  <ul>
+    <li>Ábrelo desde <span class="k">Chat</span> o con <span class="k">Abrir Chat</span> en la tarjeta del trueque.</li>
+    <li>Usa las <strong>respuestas rápidas</strong> para escribir más rápido.</li>
+    <li>El chat funciona mientras el trueque está <em>propuesto</em> o <em>confirmado</em>; se cierra al completarlo o rechazarlo.</li>
+    <li>Solo los dos participantes pueden leer la conversación. El lenguaje ofensivo se bloquea.</li>
+  </ul>
+</div>
+
+<!-- 12 -->
+<div class="seccion">
+  <h2>12. Calificar un intercambio y reputación</h2>
+  <p>Cuando el trueque está <strong>completado</strong>, pulsa <span class="k">Calificar Intercambio</span>.</p>
+  <figure><img src="../manual_img/11_calificar.png"><figcaption>Figura 11. Calificación de 1 a 5 estrellas con reseña.</figcaption></figure>
+  <ol>
+    <li>Elige de <strong>1 a 5 estrellas</strong>.</li>
+    <li>Escribe una reseña (opcional).</li>
+    <li>Pulsa <span class="k">Registrar Calificación</span>.</li>
+  </ol>
+  <ul>
+    <li>Solo puedes calificar <strong>una vez</strong> por trueque.</li>
+    <li>Tu reputación se calcula con un promedio ponderado (bayesiano), para que pocas calificaciones no la distorsionen.</li>
+    <li>Niveles: <strong>Nuevo</strong>, <strong>Confiable</strong> (3 o más reseñas) y <strong>Destacado</strong> (10 o más reseñas con promedio alto).</li>
+    <li>Puedes <strong>reportar</strong> una reseña inapropiada desde tu perfil.</li>
+  </ul>
+</div>
+
+<!-- 13 -->
+<div class="seccion">
+  <h2>13. Tickets de soporte</h2>
+  <p>Los moderadores pueden abrir un <strong>ticket</strong> cuando necesitan algo de ti, por ejemplo una foto más clara de tu libro.</p>
+  <figure><img src="../manual_img/12_tickets.png"><figcaption>Figura 12. Ticket de revisión que requiere respuesta del estudiante.</figcaption></figure>
+  <ul>
+    <li>El número junto a <span class="k">Tickets</span> indica los que esperan tu respuesta.</li>
+    <li>Pulsa <span class="k">Abrir Conversación</span> para leer y responder.</li>
+    <li>Filtra por estado: esperando tu respuesta, en revisión, abiertos o resueltos.</li>
+  </ul>
+</div>
+
+<!-- 14 -->
+<div class="seccion">
+  <h2>14. Panel de administración y moderación</h2>
+  <p>Solo para cuentas con rol de <strong>administrador</strong> o <strong>moderador</strong>. Aparece como <span class="k">Panel Admin</span> en el menú.</p>
+  <figure><img src="../manual_img/13_admin.png"><figcaption>Figura 13. Indicadores reales, directorio de usuarios y verificaciones pendientes.</figcaption></figure>
+  <table>
+    <tr><th>Función</th><th>Quién</th></tr>
+    <tr><td>Revisar verificaciones de libros: ver las fotos y aprobar o rechazar con una nota</td><td>Moderador, Administrador</td></tr>
+    <tr><td>Revisar carnés estudiantiles</td><td>Moderador, Administrador</td></tr>
+    <tr><td>Abrir y gestionar tickets</td><td>Moderador, Administrador</td></tr>
+    <tr><td>Reportes, advertencias, sanciones y apelaciones</td><td>Moderador, Administrador</td></tr>
+    <tr><td>Promover usuarios a moderador</td><td>Administrador</td></tr>
+    <tr><td>Consultar la auditoría de acciones</td><td>Administrador</td></tr>
+  </table>
+  <h3>Auditoría</h3>
+  <p>Cada acción importante queda registrada: quién la hizo, qué hizo, cuándo, desde dónde y con qué resultado.</p>
+  <figure><img src="../manual_img/14_admin_revision.png"><figcaption>Figura 14. Registro de auditoría.</figcaption></figure>
+</div>
+
+<!-- 15 -->
+<div class="seccion">
+  <h2>15. Preguntas frecuentes y solución de problemas</h2>
+  <table>
+    <tr><th>Situación</th><th>Qué hacer</th></tr>
+    <tr><td>No me llegó el código de confirmación</td><td>Revisa la carpeta de spam. Inicia sesión, deja vacía la ventana del código y acepta <strong>reenviarlo</strong>.</td></tr>
+    <tr><td>“Debes confirmar tu correo institucional”</td><td>Escribe el código de 6 dígitos que llegó a tu correo.</td></tr>
+    <tr><td>“Has superado el límite de intentos”</td><td>Espera unos minutos antes de volver a intentar.</td></tr>
+    <tr><td>Mi libro no aparece en el catálogo</td><td>Completa la verificación con fotos y espera la aprobación. Revisa tus <strong>Tickets</strong>.</td></tr>
+    <tr><td>No puedo publicar más libros</td><td>Alcanzaste el límite de publicaciones activas. Verifícate como estudiante para ampliarlo a 10.</td></tr>
+    <tr><td>No puedo enviar mensajes en el chat</td><td>El trueque ya fue completado o rechazado.</td></tr>
+    <tr><td>No puedo completar el trueque</td><td>El receptor debe <strong>confirmarlo</strong> primero.</td></tr>
+    <tr><td>“No se pudo cargar el catálogo”</td><td>El servidor no está disponible. Intenta de nuevo más tarde.</td></tr>
+    <tr><td>Olvidé mi contraseña</td><td>Contacta a la coordinación de SWAPU por un ticket o al administrador.</td></tr>
+  </table>
+  <h3>Recomendaciones de seguridad</h3>
+  <ul>
+    <li>Haz los intercambios en lugares públicos del campus, como la biblioteca.</li>
+    <li>No compartas tu contraseña ni tu código de confirmación.</li>
+    <li>Reporta cualquier comportamiento inapropiado desde la plataforma.</li>
+  </ul>
+</div>
+
+</body>
+</html>

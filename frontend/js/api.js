@@ -274,7 +274,8 @@ class ApiService {
                 carnet_estado: data.carnet_estado || null,
                 carnet_rechazo_motivo: data.carnet_rechazo_motivo || null,
                 avatar: data.foto_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=ea580c&color=fff&size=150`,
-                reputacion: { promedio: 5.0, total_calificaciones: 0 }
+                reputacion_promedio: data.reputacion_promedio ?? null,
+                reputacion_nivel: data.reputacion_nivel || "nuevo"
             };
         } catch (e) {
             return this.getCurrentUser();
@@ -430,7 +431,7 @@ class ApiService {
             usuario_nombre: book.usuario_nombre || (owner ? owner.name : "Estudiante Universitario"),
             usuario_carrera: book.usuario_carrera || (owner ? owner.carrera : "Pregrado"),
             usuario_universidad: book.usuario_universidad || (owner ? owner.universidad : "Universidad de San Buenaventura Medellín (USBMED)"),
-            usuario_reputacion: book.usuario_reputacion || (owner && owner.reputacion ? owner.reputacion.promedio : 4.9),
+            usuario_reputacion: book.usuario_reputacion ?? null,
             usuario_avatar: book.usuario_avatar || (owner ? owner.avatar : this._getDemoAvatar(book.usuario_id)),
             portada: portada,
             portada_fallback: thematicCover,
@@ -481,18 +482,8 @@ class ApiService {
                 method: "POST"
             });
         } catch (e) {
-            console.warn("Generando desafío con respaldo local:", e.message);
-            const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-            let randomCode = "";
-            for (let i = 0; i < 8; i++) {
-                randomCode += chars.charAt(Math.floor(Math.random() * chars.length));
-            }
-            return {
-                verificacion_id: Math.floor(Math.random() * 9000) + 1000,
-                codigo: randomCode,
-                vence_en: new Date(Date.now() + 15 * 60000).toISOString(),
-                instrucciones: "Escribe este código en una hoja y tómale dos fotos: una a la portada y otra a la página legal con el ISBN. La Red Neuronal MobileNetV3 clasificará el libro y EasyOCR autenticará el código."
-            };
+            // Sin códigos inventados: el desafío solo es válido si lo generó el backend.
+            throw e;
         }
     }
 
@@ -508,14 +499,8 @@ class ApiService {
                 { method: "POST", body: form }
             );
         } catch (e) {
-            console.warn("Respaldo de análisis de IA:", e.message);
-            return {
-                verificacion_id: verificationId,
-                estado: "aprobada",
-                ia_aprobado: true,
-                ia_detalle: "MobileNetV3 clasificó morfología de libro con 96.4% de confianza. EasyOCR validó el código de seguridad.",
-                mensaje: "Verificación fotográfica aprobada por Red Neuronal."
-            };
+            // Nunca se informa una aprobación que el backend no hizo: el error se muestra al usuario.
+            throw e;
         }
     }
 
@@ -613,6 +598,10 @@ class ApiService {
 
         const qs = query.toString();
         return await this._fetch(`/admin/auditoria${qs ? "?" + qs : ""}`);
+    }
+
+    async getAdminResumen() {
+        return await this._fetch("/admin/resumen");
     }
 
     async getAuditStats() {
@@ -746,8 +735,26 @@ class ApiService {
     }
 
     async getReviews() {
-        // Sin respaldo local: las reseñas vienen solo del backend.
-        return await this._fetch("/calificaciones/mis-calificaciones");
+        // Sin respaldo local: las reseñas vienen solo del backend. Se completa el nombre y la
+        // carrera de quien califica desde su perfil público (una consulta por autor).
+        const data = await this._fetch("/calificaciones/mis-calificaciones");
+        const autores = {};
+        return await Promise.all((data || []).map(async r => {
+            const autorId = r.usuario_califica_id;
+            if (!(autorId in autores)) {
+                autores[autorId] = this._fetch(`/usuarios/${autorId}/perfil-publico`).catch(() => null);
+            }
+            const autor = await autores[autorId];
+            return {
+                ...r,
+                autor: autor?.name || "Estudiante",
+                carrera: autor?.carrera || "",
+                comentario: r.resena || "",
+                fecha: r.fecha_calificacion
+                    ? new Date(r.fecha_calificacion).toLocaleDateString("es-CO")
+                    : "Reciente"
+            };
+        }));
     }
 
     async reportReview(reviewId, motivo = "Contenido inapropiado") {
@@ -793,7 +800,7 @@ class ApiService {
         try {
             return await this._fetch("/health");
         } catch (e) {
-            return { status: "offline", app: "Plataforma de Trueque (Modo Local)" };
+            return { status: "offline", app: "Plataforma de Trueque", detalle: "Sin conexión con el servidor" };
         }
     }
 
@@ -801,7 +808,7 @@ class ApiService {
         try {
             return await this._fetch("/health/db");
         } catch (e) {
-            return { database: { status: "local_storage", dialecto: "navegador" } };
+            return { database: { status: "error", detalle: "No se pudo comprobar la base de datos: sin conexión con el servidor" } };
         }
     }
 

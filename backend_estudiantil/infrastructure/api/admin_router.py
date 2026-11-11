@@ -184,3 +184,37 @@ async def obtener_estadisticas_auditoria(
             intentos_bloqueados_401_403=bloqueados,
             usuarios_activos_auditados=usuarios_activos,
         )
+
+
+class ResumenPlataforma(BaseModel):
+    usuarios_registrados: int
+    libros_en_oferta: int
+    trueques_completados: int
+    reputacion_global: float | None
+
+
+@router.get("/resumen", response_model=ResumenPlataforma, summary="Indicadores reales de la plataforma")
+async def obtener_resumen_plataforma(current_user: dict = Depends(get_current_user)):
+    """Conteos reales para las tarjetas del panel de administración (sin valores de ejemplo)."""
+    if current_user.get("role") not in ("admin", "administrador"):
+        raise HTTPException(status_code=403, detail="Acceso restringido a administradores")
+
+    from backend_estudiantil.adapters.db import CalificacionORM, PublicacionORM, TruequeORM, UserORM
+
+    factory = get_session_factory()
+    async with factory() as session:
+        usuarios = (await session.execute(select(func.count(UserORM.id)))).scalar_one()
+        libros = (await session.execute(
+            select(func.count(PublicacionORM.id)).where(PublicacionORM.estado_publicacion == "activa")
+        )).scalar_one()
+        trueques = (await session.execute(
+            select(func.count(TruequeORM.id)).where(TruequeORM.estado == "completado")
+        )).scalar_one()
+        promedio = (await session.execute(select(func.avg(CalificacionORM.estrellas)))).scalar_one()
+
+    return ResumenPlataforma(
+        usuarios_registrados=usuarios,
+        libros_en_oferta=libros,
+        trueques_completados=trueques,
+        reputacion_global=round(float(promedio), 2) if promedio is not None else None,
+    )

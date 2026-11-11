@@ -275,6 +275,7 @@ class CampusSwapApp {
         if (!api.getToken()) {
             this.trades = [];
             this.matches = [];
+            this._actualizarContadorMatches();
             return;
         }
         try {
@@ -289,6 +290,16 @@ class CampusSwapApp {
             console.error("Error al cargar coincidencias:", e);
             this.matches = [];
         }
+        this._actualizarContadorMatches();
+    }
+
+    _actualizarContadorMatches() {
+        // Contador real de coincidencias en el menú; oculto si no hay ninguna
+        const badge = document.getElementById("matches-badge");
+        if (!badge) return;
+        const total = (this.matches || []).length;
+        badge.textContent = total;
+        badge.style.display = total > 0 ? "" : "none";
     }
 
     navigateTo(viewName, updateHash = true) {
@@ -437,7 +448,7 @@ class CampusSwapApp {
                         </div>
                         <div class="owner-rating">
                             <i class="fa-solid fa-star"></i>
-                            <span>${book.usuario_reputacion ? Number(book.usuario_reputacion).toFixed(1) : '4.9'}</span>
+                            <span>${book.usuario_reputacion ? Number(book.usuario_reputacion).toFixed(1) : 'Nuevo'}</span>
                         </div>
                     </div>
 
@@ -1726,10 +1737,17 @@ class CampusSwapApp {
         if (emailEl) emailEl.textContent = user.email || "";
         if (telEl) telEl.textContent = user.telefono || "No registrado";
         if (avatarEl) avatarEl.src = user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'U')}&background=ea580c&color=fff&size=150`;
-        if (statTrades) statTrades.textContent = user.trueques_completados ?? 0;
+        if (statTrades) {
+            // Conteo real desde el backend (trueques del usuario en estado completado)
+            const misTrueques = await api.getTrueques().catch(() => this.trades || []);
+            statTrades.textContent = (misTrueques || []).filter(t => t.estado === "completado").length;
+        }
         if (statRating) {
-            const prom = user.reputacion_promedio ?? (user.reputacion?.promedio_bayesiano ?? (user.reputacion?.promedio ?? 5.0));
-            statRating.textContent = Number(prom).toFixed(1) + " ★";
+            // Sin calificaciones no se inventa un promedio
+            const prom = user.reputacion_promedio;
+            statRating.textContent = (prom === null || prom === undefined)
+                ? "Sin calificaciones"
+                : Number(prom).toFixed(1) + " ★";
         }
         const statNivel = document.getElementById("prof-stat-reputacion-nivel");
         if (statNivel) {
@@ -1877,14 +1895,14 @@ class CampusSwapApp {
                 <div class="review-item">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                         <div>
-                            <strong>${r.autor}</strong>
-                            <span style="font-size: 0.78rem; color: var(--text-muted);"> • ${r.carrera || 'Estudiante'}</span>
+                            <strong>${this.escapeHtml(r.autor)}</strong>
+                            <span style="font-size: 0.78rem; color: var(--text-muted);"> • ${this.escapeHtml(r.carrera || 'Estudiante')}</span>
                         </div>
                         <div class="star-rating" style="margin: 0; font-size: 0.95rem;">
                             ${'★'.repeat(r.estrellas)}${'☆'.repeat(5 - r.estrellas)}
                         </div>
                     </div>
-                    <p style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.4;">${r.comentario}</p>
+                    <p style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.4;">${this.escapeHtml(r.comentario)}</p>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
                         <span style="font-size: 0.72rem; color: var(--text-muted);">${r.fecha || 'Reciente'}</span>
                         <button class="btn btn-outline btn-sm" onclick="app.promptReportReview(${r.id})" style="font-size: 0.75rem; padding: 0.2rem 0.5rem; color: var(--danger); border-color: rgba(239,68,68,0.3);">
@@ -2164,7 +2182,22 @@ class CampusSwapApp {
     // -------------------------------------------------------------------------
     // Panel de Administración (Acceso Restringido)
     // -------------------------------------------------------------------------
+    async _renderAdminKpis() {
+        // Indicadores reales desde el backend; si falla se muestra "—" (nunca cifras de ejemplo).
+        const poner = (id, valor) => { const el = document.getElementById(id); if (el) el.textContent = valor; };
+        try {
+            const r = await api.getAdminResumen();
+            poner("admin-kpi-usuarios", r.usuarios_registrados);
+            poner("admin-kpi-libros", r.libros_en_oferta);
+            poner("admin-kpi-trueques", r.trueques_completados);
+            poner("admin-kpi-reputacion", r.reputacion_global === null ? "—" : `${Number(r.reputacion_global).toFixed(2)} ★`);
+        } catch (e) {
+            ["admin-kpi-usuarios", "admin-kpi-libros", "admin-kpi-trueques", "admin-kpi-reputacion"].forEach(id => poner(id, "—"));
+        }
+    }
+
     async renderAdminPanel() {
+        this._renderAdminKpis();
         const user = api.getCurrentUser();
         const restrictedNotice = document.getElementById("admin-restricted-view");
         const adminContent = document.getElementById("admin-content-view");
@@ -2680,6 +2713,9 @@ class CampusSwapApp {
     async logout() {
         this._closeChatWebSocket(true);
         await api.logout();
+        this.trades = [];
+        this.matches = [];
+        this._actualizarContadorMatches();
         this.updateUserBadge();
         this.showToast("Has cerrado sesión", "info");
         this.navigateTo("catalog");
