@@ -1,6 +1,13 @@
 # Blueprint de Render para SWAPU (plan gratuito, sin Docker).
-# Backend FastAPI + frontend estático servidos por el mismo proceso (mismo origen).
-# La base de datos PostgreSQL vive fuera de Render (Neon, plan gratuito): ver docs/despliegue_gratuito.md
+# Crea TODO automáticamente: la base PostgreSQL gratuita y la aplicación web
+# (backend FastAPI + frontend servidos por el mismo proceso).
+# Al desplegar, solo se piden ADMIN_EMAIL_INICIAL y ADMIN_PASSWORD_INICIAL.
+databases:
+  - name: swapu-db
+    plan: free
+    databaseName: swapu
+    user: swapu
+
 services:
   - type: web
     name: swapu
@@ -8,42 +15,34 @@ services:
     plan: free
     branch: main
     buildCommand: pip install --upgrade pip && pip install -r backend_estudiantil/requirements-deploy.txt
-    startCommand: uvicorn backend_estudiantil.infrastructure.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
+    # 1) Prepara la base nueva (solo si está vacía) y el administrador inicial; 2) inicia la app
+    startCommand: python scripts/inicializar_bd_nueva.py && uvicorn backend_estudiantil.infrastructure.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
       - key: ENV
         value: prod
-      # Cadena de conexión de Neon (se pega en el panel de Render; nunca en el repositorio)
       - key: DATABASE_URL
-        sync: false
-      # Render genera una clave aleatoria segura (>= 32 caracteres)
+        fromDatabase:
+          name: swapu-db
+          property: connectionString
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: COOKIE_SECURE
         value: "true"
       - key: COOKIE_SAMESITE
         value: lax
-      # Sin Redis en el plan gratuito: el chat y los límites usan memoria local
       - key: REDIS_URL
         value: ""
-      # URL pública del servicio (para enlaces de confirmación por correo)
-      - key: APP_BASE_URL
-        sync: false
-      # Correo SMTP para enviar los códigos de confirmación (obligatorio en producción)
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASSWORD
-        sync: false
-      - key: SMTP_FROM_EMAIL
-        sync: false
-      # Poner "false" solo mientras no haya SMTP configurado
+      # Sin servidor de correo configurado, la confirmación por código queda desactivada.
+      # Al configurar SMTP_* en el panel de Render, cambiar a "true".
       - key: CONFIRMACION_CORREO_OBLIGATORIA
-        value: "true"
+        value: "false"
       - key: BOOK_VERIFICATION_STORAGE_PATH
         value: ./storage/book-verification
+      # Cuenta de administrador que se crea al primer arranque (se piden al desplegar)
+      - key: ADMIN_EMAIL_INICIAL
+        sync: false
+      - key: ADMIN_PASSWORD_INICIAL
+        sync: false

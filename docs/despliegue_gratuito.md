@@ -1,4 +1,22 @@
-# Despliegue gratuito de SWAPU (Render + Neon)
+# Despliegue gratuito de SWAPU
+
+## Opción rápida (recomendada): todo en Render
+
+`render.yaml` crea automáticamente la base PostgreSQL gratuita y la aplicación.
+
+1. Entrar a https://dashboard.render.com con la cuenta de **GitHub**.
+2. **New → Blueprint** → elegir el repositorio `Unslowling/jojual` → **Connect**.
+3. Escribir `ADMIN_EMAIL_INICIAL` (correo del administrador) y `ADMIN_PASSWORD_INICIAL` (mínimo 8 caracteres).
+4. Pulsar **Apply** y esperar unos minutos a que el servicio quede *Live*.
+5. Abrir la URL `https://swapu-xxxx.onrender.com` e iniciar sesión con ese administrador.
+
+En el primer arranque, `scripts/inicializar_bd_nueva.py` crea el esquema (solo si la base está vacía), las categorías y el administrador.
+
+> La base gratuita de Render **vence a los 30 días**. Para algo permanente, usar la opción con Neon descrita abajo.
+
+---
+
+# Opción alternativa: Render + Neon (base sin vencimiento)
 
 - **App (backend + frontend):** Render, plan gratuito, sin Docker. Configurado en `render.yaml`.
 - **Base de datos:** Neon, PostgreSQL gratuito y sin vencimiento (la base gratuita de Render se borra a los 30 días).
