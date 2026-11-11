@@ -117,7 +117,8 @@ class ApiService {
             if (!res.ok) {
                 const errData = await res.json().catch(() => ({ detail: res.statusText }));
                 const detail = errData.detail || "Error en la solicitud al servidor";
-                if (res.status === 401) {
+                // En /auth/* un 401 significa credenciales o código incorrectos, no sesión expirada
+                if (res.status === 401 && !endpoint.startsWith("/auth/")) {
                     this.setToken(null);
                     this.setCurrentUser(null);
                     if (window.app && typeof window.app.updateUserBadge === "function") {

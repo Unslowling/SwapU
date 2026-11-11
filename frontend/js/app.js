@@ -2627,6 +2627,17 @@ class CampusSwapApp {
     }
 
     async submitLogin() {
+        // Evita envíos dobles (doble clic o Enter repetido) mientras hay uno en curso
+        if (this._loginEnCurso) return;
+        this._loginEnCurso = true;
+        try {
+            await this._submitLoginInterno();
+        } finally {
+            this._loginEnCurso = false;
+        }
+    }
+
+    async _submitLoginInterno() {
         const email = document.getElementById("login-email")?.value?.trim();
         const pass = document.getElementById("login-password")?.value;
 
