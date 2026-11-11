@@ -21,7 +21,10 @@ from backend_estudiantil.adapters.db import Base, OrganizacionORM, get_engine  #
 from backend_estudiantil.adapters.db.sqlalchemy_user_repository import (  # noqa: E402
     SQLAlchemyUserRepository,
 )
-from backend_estudiantil.adapters.security.password_hasher import hash_password_async  # noqa: E402
+from backend_estudiantil.adapters.security.password_hasher import (  # noqa: E402
+    hash_password_async,
+    verify_password_async,
+)
 from backend_estudiantil.config.settings import settings  # noqa: E402
 from backend_estudiantil.domain.models.user import User  # noqa: E402
 
@@ -82,8 +85,19 @@ async def crear_cuentas_por_rol() -> None:
     repo = SQLAlchemyUserRepository()
     clave_hash = await hash_password_async(clave)
     for email, nombre, rol in cuentas:
-        if await repo.get_by_email(email):
-            print(f"[init] Cuenta '{rol}' ya existe: no se modifica.")
+        existente = await repo.get_by_email(email)
+        if existente:
+            # Solo se corrige el rol si la cuenta demuestra ser del responsable del despliegue
+            # (su contraseña coincide con ADMIN_PASSWORD_INICIAL). Nunca se cambia la contraseña.
+            correcta = bool(existente.password_hash) and await verify_password_async(clave, existente.password_hash)
+            if correcta and (existente.rol != rol or not existente.correo_confirmado):
+                existente.rol = rol
+                existente.correo_confirmado = True
+                existente.estado_cuenta = "activo"
+                await repo.update(existente)
+                print(f"[init] Cuenta '{rol}' existente: rol y confirmación ajustados.")
+            else:
+                print(f"[init] Cuenta '{rol}' ya existe: no se modifica.")
             continue
         universidad = settings.obtener_universidad_por_dominio(email)
         await repo.create(
